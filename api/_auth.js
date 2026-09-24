@@ -187,6 +187,28 @@ function requireAdmin(req, res) {
   return session;
 }
 
+// The effective identity for this request, whichever scheme authenticated it.
+// One place answers this so /api/auth/me -- which decides whether the UI enables
+// Sync and the SQL console -- cannot disagree with requireAdmin, which enforces
+// them. A greyed-out Sync button and a 401 from the sync endpoint are the same
+// bug seen from two sides.
+function resolveIdentity(req) {
+  if (devBypass()) return { authenticated: true, email: 'dev@localhost', role: 'admin', dev: true };
+
+  const session = getSession(req);
+  if (session) return { authenticated: true, email: session.email, role: getRole(session.email) };
+
+  // Same rule as requireAdmin: with only a shared password configured there is
+  // nobody to distinguish, so holding it is admin. Once OAuth is configured,
+  // named sessions decide who is admin and the shared password drops to viewer.
+  const basic = basicPrincipal(req);
+  if (basic) {
+    return { authenticated: true, email: null, role: oauthConfigured() ? 'viewer' : 'admin', basic: true };
+  }
+
+  return { authenticated: false, email: null, role: 'anonymous' };
+}
+
 function randomToken(n = 24) {
   return b64url(crypto.randomBytes(n));
 }
@@ -194,6 +216,6 @@ function randomToken(n = 24) {
 module.exports = {
   SESSION_COOKIE, SESSION_TTL_SECONDS,
   makeSessionCookie, makeClearCookie, parseCookies,
-  getSession, requireAccess, requireAdmin,
+  getSession, requireAccess, requireAdmin, resolveIdentity,
   authConfigured, oauthConfigured, hasLiveData, isAdmin, getRole, randomToken, devBypass
 };
