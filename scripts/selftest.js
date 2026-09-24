@@ -9,6 +9,8 @@
 process.env.MA_SNAPSHOT_CHUNK_CHARS = '50000';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const engine = require('../api/_engine.js');
 const demo = require('../api/_demo.js');
 const store = require('../api/_store.js');
@@ -189,6 +191,38 @@ check('movers only report periods with comparable volume on both sides', () => {
   for (const r of [...m.declining, ...m.improving]) {
     assert.ok(r.total >= 12 && r.prevTotal >= 12, `${r.key} reported on thin volume`);
   }
+});
+
+// The allowlist in api/metrics.js is a third copy of the metric list, beside the
+// engines that implement them and the frontend that asks for them. A kind that
+// falls out of step is rejected at the gate and the panel reads "Unsupported
+// metric" even though the implementation is right there -- which is exactly how
+// officeHours shipped broken. Compare the three by reading the source.
+function metricKinds() {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const allowed = new Set(
+    (/const KINDS = new Set\(\[([\s\S]*?)\]\)/.exec(read('api/metrics.js'))[1].match(/'([a-zA-Z]+)'/g) || [])
+      .map(s => s.replace(/'/g, '')));
+  const implemented = new Set(
+    (read('api/_engine.js').match(/^    case '([a-zA-Z]+)':/gm) || [])
+      .map(s => s.replace(/.*'([a-zA-Z]+)'.*/, '$1')));
+  const requested = new Set(
+    (read('public/app.js').match(/kind: '([a-zA-Z]+)'/g) || [])
+      .map(s => s.replace(/.*'([a-zA-Z]+)'.*/, '$1')));
+  return { allowed, implemented, requested };
+}
+
+console.log('\nmetric allowlist');
+const kinds = metricKinds();
+check('every metric the frontend requests is allowed by the API', () => {
+  const missing = [...kinds.requested].filter(k => !kinds.allowed.has(k));
+  assert.deepStrictEqual(missing, [],
+    `the frontend asks for ${missing.join(', ')} but api/metrics.js rejects it`);
+});
+check('every allowed metric is implemented by the engine', () => {
+  const orphaned = [...kinds.allowed].filter(k => !kinds.implemented.has(k));
+  assert.deepStrictEqual(orphaned, [],
+    `api/metrics.js allows ${orphaned.join(', ')} but _engine.js does not implement it`);
 });
 
 // The snapshot cache is only safe if a restored dataset produces byte-identical

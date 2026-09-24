@@ -11,9 +11,13 @@
 const { requireAccess } = require('./_auth.js');
 const source = require('./_source.js');
 
+// Every metric the engines implement. A kind missing here is rejected before it
+// reaches them, so the panel renders "Unsupported metric" even though the code
+// behind it exists -- scripts/selftest.js asserts this list stays in step.
 const KINDS = new Set([
   'summary', 'group', 'timeseries', 'reasons', 'funnel', 'aging', 'heatmap',
-  'movers', 'leakage', 'imbalance', 'rows', 'invMatch', 'invMatchGroup', 'invMatchDemandRows'
+  'movers', 'leakage', 'imbalance', 'officeHours', 'rows',
+  'invMatch', 'invMatchGroup', 'invMatchDemandRows'
 ]);
 const GRAINS = new Set(['day', 'week', 'month']);
 const MAX_SPECS = 16;
