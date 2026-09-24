@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketplace Analytics</title>
+<meta name="description" content="Demand and inventory analytics for the Freight Tiger marketplace.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 21h5V11H7zm6.5 0h5V7h-5zm6.5 0h5v-6h-5z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="header-top">
+    <div class="brand">
+      <h1>Marketplace Analytics</h1>
+      <span class="sub">Demand &amp; inventory</span>
+    </div>
+    <span id="modeChip" class="mode-chip"><span class="dot"></span><span id="modeLabel">loading</span></span>
+    <button id="syncBtn" class="primary-btn" type="button" hidden>Sync from Databricks</button>
+    <button id="refreshBtn" class="ghost-btn" type="button" title="Redraw from the cached snapshot — does not query Databricks">Refresh</button>
+    <button id="themeBtn" class="icon-btn" type="button" title="Switch light / dark" aria-label="Switch light or dark theme">Theme</button>
+    <span id="userSlot"></span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="overview"  aria-selected="true">Executive overview</button>
+    <button class="tab" role="tab" data-tab="map"       aria-selected="false">Map view</button>
+    <button class="tab" role="tab" data-tab="demand"    aria-selected="false">Demand</button>
+    <button class="tab" role="tab" data-tab="inventory" aria-selected="false">Inventory</button>
+    <button class="tab" role="tab" data-tab="bids" aria-selected="false">FO App bids</button>
+    <button class="tab" role="tab" data-tab="matching"  aria-selected="false">Demand ↔ supply</button>
+    <button class="tab" role="tab" data-tab="people"    aria-selected="false">PSA &amp; LSP</button>
+    <button class="tab" role="tab" data-tab="explore"   aria-selected="false">Explore</button>
+    <button class="tab" role="tab" data-tab="setup"     aria-selected="false">Setup</button>
+  </nav>
+
+  <div class="filter-bar" id="filterBar">
+    <div class="filter-row filter-row-main">
+      <div class="filter-chip" data-filter="dates">
+        <button type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="chip-label">Dates</span><span class="chip-value" data-role="value">Last 90 days</span>
+        </button>
+      </div>
+      <div class="filter-chip" data-filter="originSuperCluster"></div>
+      <div class="filter-chip" data-filter="destinationSuperCluster"></div>
+      <div class="filter-chip" data-filter="superClusterLane"></div>
+      <div class="filter-chip" data-filter="laneType"></div>
+      <button id="moreFiltersBtn" class="more-filters-btn" type="button" aria-expanded="false" aria-controls="moreFilters">
+        More filters
+        <span class="more-filters-count" id="moreFiltersCount" hidden></span>
+      </button>
+      <div class="filter-row-actions">
+        <div class="segmented" id="outcomeToggle" role="group" aria-label="Outcome">
+          <button type="button" data-outcome="all" aria-pressed="true">All</button>
+          <button type="button" data-outcome="success" aria-pressed="false">Fulfilled</button>
+          <button type="button" data-outcome="fail" aria-pressed="false">Unfulfilled</button>
+        </div>
+        <button id="resetFilters" class="ghost-btn" type="button">Reset</button>
+        <button id="copyLink" class="ghost-btn" type="button" title="Copy a link that reproduces this exact view">Copy view link</button>
+      </div>
+    </div>
+
+    <div class="filter-more" id="moreFilters" hidden>
+      <div class="filter-more-label">More filters</div>
+      <div class="filter-more-chips">
+        <div class="filter-chip" data-filter="region"></div>
+        <div class="filter-chip" data-filter="origin"></div>
+        <div class="filter-chip" data-filter="destination"></div>
+        <div class="filter-chip" data-filter="lane"></div>
+        <div class="filter-chip" data-filter="psa"></div>
+        <div class="filter-chip" data-filter="lsp"></div>
+        <div class="filter-chip" data-filter="shipper"></div>
+        <div class="filter-chip" data-filter="vehicleType"></div>
+        <div class="filter-chip" data-filter="materialType"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="loading">Loading…</div>
+</main>
+
+<script src="./charts.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies / caches / build output
+node_modules/
+.cache/
+.vercel/
+dist/
+build/
+
+# Logs and OS files
+*.log
+.DS_Store

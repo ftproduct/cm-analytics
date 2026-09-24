@@ -1,0 +1,15 @@
+{
+  "name": "marketplace-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demand and inventory analytics for the Freight Tiger marketplace, backed by Databricks.",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "check": "node scripts/selftest.js",
+    "discover": "node scripts/discover.js",
+    "sync": "node scripts/sync-cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

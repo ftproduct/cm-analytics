@@ -1,0 +1,101 @@
+{
+  "catalog": "elh_prod",
+  "schema": "ftverse",
+  "demand": {
+    "table": "phase2poc_demand",
+    "columns": {
+      "id": "indent_id",
+      "createdAt": "created_at",
+      "pickupAt": null,
+      "fulfilledAt": "vehicle_placed_ft_timestamp",
+      "originCity": "origin",
+      "originState": null,
+      "destinationCity": "destination",
+      "destinationState": null,
+      "shipper": "shipper_name",
+      "lsp": "lsp",
+      "psa": "psa",
+      "vehicleType": "truck_type",
+      "materialType": "material",
+      "region": null,
+      "branch": null,
+      "status": "status",
+      "unfulfilmentReason": "cancellation_reason",
+      "quantity": "required_no_of_trucks",
+      "weightTons": "min_order_tonnage",
+      "expectedPrice": "rate",
+      "bookedPrice": "final_rate_quoted_csm_to_lsp",
+      "laneType": "is_liquid_lane",
+      "originSuperCluster": "origin_super_cluster_name",
+      "destinationSuperCluster": "destination_super_cluster_name"
+    },
+    "fulfilledStatuses": [
+      "VEHICLE_PLACED_BY_FT"
+    ],
+    "excludeStatuses": [
+      "VEHICLE_PLACED_BY_EXTERNAL"
+    ],
+    "unfulfilledStatuses": [
+      "LAPSED",
+      "CANCELLED",
+      "TRIP_CANCELLED_AFTER_PLACEMENT",
+      "CANCELLED_BY_FO",
+      "CANCELLED_BY_LSP_AFTER_VEHICLE_REPORTED",
+      "VEHICLE_NOT_AVAILABLE",
+      "FO_BROKER_NOT_AVAILABLE",
+      "SYSTEM_ISSUE",
+      "VEHICLE_AVAILABLE_RATE_MISMATCH",
+      "VEHICLE_AVAILABLE_LSP_NOT_RESPONDING",
+      "RATES_MATCHED_VEHICLE_UNAVAILABLE",
+      "OPEN",
+      "LSP_RATE_ENQUIRY",
+      "VEHICLE_AVAILABLE_LSP_TO_CONFIRM"
+    ]
+  },
+  "inventory": {
+    "table": "phase2poc_demand_supply",
+    "joined": false,
+    "columns": {
+      "id": "id",
+      "createdAt": "created_at",
+      "availableFrom": "available_from",
+      "availableTill": "available_till",
+      "convertedAt": "converted_at",
+      "firstActionAt": "first_action_at",
+      "originCity": "origin",
+      "originState": null,
+      "destinationCity": "destination",
+      "destinationState": null,
+      "lsp": "lsp",
+      "psa": "psa",
+      "vehicleType": "vehicle_type",
+      "region": null,
+      "branch": null,
+      "status": "status",
+      "stage": "funnel_stage",
+      "nonConversionReason": "non_conversion_reason",
+      "matchedDemandId": "matched_demand_id",
+      "capacityTons": null,
+      "quantity": "quantity",
+      "askingPrice": "asking_price"
+    },
+    "convertedStatuses": [
+      "PLACED",
+      "VEHICLE_PLACED_BY_FT"
+    ],
+    "nonConvertedStatuses": [
+      "MATCHED",
+      "CALLED",
+      "VEHICLE_AVAILABLE",
+      "LAPSED",
+      "OPEN",
+      "CANCELLED"
+    ],
+    "funnelStages": [
+      "MATCHED",
+      "CALLED",
+      "VEHICLE_AVAILABLE",
+      "PLACED"
+    ]
+  }
+}
