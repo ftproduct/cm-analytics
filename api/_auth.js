@@ -17,6 +17,7 @@
 // rather than served.
 
 const crypto = require('crypto');
+const basicAuth = require('./_basicAuth.js');
 
 const SESSION_COOKIE = 'ma_session';
 const SESSION_TTL_SECONDS = 30 * 24 * 3600;
@@ -86,8 +87,28 @@ function devBypass() {
   return String(process.env.MA_DEV_ALLOW_ANONYMOUS || '').toLowerCase() === 'true';
 }
 
-function authConfigured() {
+// The site counts as protected under either scheme. Basic auth is enforced at
+// the edge by middleware.js, but the API functions verify the header
+// themselves too: middleware does not run under `npm run dev`, and an API that
+// depends on someone else having checked is one routing change from being open.
+function oauthConfigured() {
   return Boolean(process.env.SESSION_SECRET && process.env.GOOGLE_OAUTH_CLIENT_ID);
+}
+
+function authConfigured() {
+  return oauthConfigured() || basicAuth.isConfigured();
+}
+
+// Verifies the Basic credentials on this request. Returns a principal when they
+// match, null otherwise. Everyone holding the shared password is the same
+// person as far as the app is concerned -- for per-person identity, configure
+// Google OAuth instead.
+function basicPrincipal(req) {
+  if (!basicAuth.isConfigured()) return null;
+  const creds = basicAuth.parseBasicCredentials(req.headers?.authorization);
+  if (!creds) return null;
+  if (!basicAuth.credentialsMatch(creds.user, creds.pass)) return null;
+  return { email: null, basic: true, user: creds.user };
 }
 
 // True when real warehouse data is reachable from this deployment.
@@ -116,11 +137,15 @@ function requireAccess(req, res) {
   if (session) return session;
   if (devBypass()) return { email: 'dev@localhost', dev: true };
 
+  const basic = basicPrincipal(req);
+  if (basic) return basic;
+
   if (hasLiveData()) {
     if (!authConfigured()) {
       res.status(500).json({
         error: 'This deployment is connected to Databricks but has no sign-in configured. ' +
-               'Set SESSION_SECRET and GOOGLE_OAUTH_CLIENT_ID before serving live data.'
+               'Set BASIC_AUTH_USER and BASIC_AUTH_PASSWORD, or SESSION_SECRET and ' +
+               'GOOGLE_OAUTH_CLIENT_ID, before serving live data.'
       });
       return null;
     }
@@ -141,6 +166,15 @@ function requireAccess(req, res) {
 // and never open -- even in demo mode.
 function requireAdmin(req, res) {
   if (devBypass()) return { email: 'dev@localhost', dev: true };
+
+  // With only a shared password configured there is nobody to distinguish, so
+  // holding it is admin. Configure Google OAuth and ADMIN_EMAILS when Sync and
+  // the SQL console should be limited to named people.
+  if (!oauthConfigured()) {
+    const basic = basicPrincipal(req);
+    if (basic) return basic;
+  }
+
   const session = getSession(req);
   if (!session) {
     res.status(401).json({ error: 'Not authenticated', login: '/api/auth/login' });
@@ -161,5 +195,5 @@ module.exports = {
   SESSION_COOKIE, SESSION_TTL_SECONDS,
   makeSessionCookie, makeClearCookie, parseCookies,
   getSession, requireAccess, requireAdmin,
-  authConfigured, hasLiveData, isAdmin, getRole, randomToken, devBypass
+  authConfigured, oauthConfigured, hasLiveData, isAdmin, getRole, randomToken, devBypass
 };
