@@ -283,4 +283,87 @@ async function snapshotChecks() {
   console.log(`\n${checks} checks passed\n`);
 }
 
+// ---------------------------------------------------------------------------
+// Access control
+//
+// Every privileged route must agree with /api/auth/me about who is admin. The
+// UI enables Sync and the SQL console from what /api/auth/me reports, so a
+// route that gates differently gives you either a button you can press and a
+// 401 behind it, or a greyed-out button over an endpoint that would have
+// allowed you through.
+// ---------------------------------------------------------------------------
+console.log('\naccess control');
+{
+  const auth = require('../api/_auth.js');
+  const AUTH_ENV = [
+    'SESSION_SECRET', 'GOOGLE_OAUTH_CLIENT_ID', 'BASIC_AUTH_USER',
+    'BASIC_AUTH_PASSWORD', 'ADMIN_EMAILS', 'MA_DEV_ALLOW_ANONYMOUS', 'VERCEL'
+  ];
+  const saved = Object.fromEntries(AUTH_ENV.map(k => [k, process.env[k]]));
+  const restore = () => {
+    for (const k of AUTH_ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  };
+  const only = env => {
+    for (const k of AUTH_ENV) delete process.env[k];
+    Object.assign(process.env, env);
+  };
+  const basicReq = (user, pass) => ({
+    headers: { authorization: 'Basic ' + Buffer.from(`${user}:${pass}`, 'utf8').toString('base64') }
+  });
+  const fakeRes = () => {
+    const r = { code: null, body: null };
+    r.status = c => { r.code = c; return r; };
+    r.json = b => { r.body = b; return r; };
+    r.setHeader = () => {};
+    return r;
+  };
+
+  const SHARED = { BASIC_AUTH_USER: 'ft', BASIC_AUTH_PASSWORD: 'pw', SESSION_SECRET: 's'.repeat(32) };
+
+  try {
+    check('with only a shared password, holding it is admin', () => {
+      only(SHARED);
+      const id = auth.resolveIdentity(basicReq('ft', 'pw'));
+      assert.strictEqual(id.authenticated, true);
+      assert.strictEqual(id.role, 'admin', 'the shared password must grant admin when there is no OAuth');
+      assert.ok(auth.requireAdmin(basicReq('ft', 'pw'), fakeRes()), 'requireAdmin must accept the shared password');
+    });
+
+    check('a wrong shared password is nobody', () => {
+      only(SHARED);
+      assert.strictEqual(auth.resolveIdentity(basicReq('ft', 'nope')).role, 'anonymous');
+      const res = fakeRes();
+      assert.strictEqual(auth.requireAdmin(basicReq('ft', 'nope'), res), null);
+      assert.strictEqual(res.code, 401);
+    });
+
+    check('once OAuth is configured the shared password drops to viewer', () => {
+      only({ ...SHARED, GOOGLE_OAUTH_CLIENT_ID: 'client', ADMIN_EMAILS: 'someone@freighttiger.com' });
+      assert.strictEqual(auth.resolveIdentity(basicReq('ft', 'pw')).role, 'viewer');
+      assert.strictEqual(auth.requireAdmin(basicReq('ft', 'pw'), fakeRes()), null);
+    });
+  } finally {
+    restore();
+  }
+
+  check('privileged routes gate through requireAdmin rather than their own check', () => {
+    for (const file of ['sync.js', 'sql.js', 'catalog.js']) {
+      const src = fs.readFileSync(path.join(__dirname, '..', 'api', file), 'utf8');
+      assert.ok(/requireAdmin\(req, res\)/.test(src), `api/${file} does not call requireAdmin`);
+      assert.ok(!/isAdmin\(session\.email\)/.test(src),
+        `api/${file} hand-rolls a session admin check, so it will refuse the shared password`);
+    }
+  });
+
+  check('/api/auth/me reports the role from the same resolver', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'api', 'auth', 'me.js'), 'utf8');
+    assert.ok(/resolveIdentity\(req\)/.test(src), 'me.js must use resolveIdentity');
+    assert.ok(!/getRole\(session\?\.email\)/.test(src),
+      'me.js reads the session directly, so basic-auth users report as anonymous and the UI greys out Sync');
+  });
+}
+
 snapshotChecks().catch(e => { console.error('\n' + e.stack); process.exit(1); });

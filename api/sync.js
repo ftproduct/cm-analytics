@@ -9,7 +9,7 @@
 // This is the only endpoint that reads from Databricks during normal operation.
 // Everything else serves from the snapshot it writes.
 
-const { requireAccess, requireAdmin, isAdmin, getSession, devBypass } = require('./_auth.js');
+const { requireAccess, requireAdmin } = require('./_auth.js');
 const db = require('./_databricks.js');
 const store = require('./_store.js');
 const { runSync, DEFAULT_DAYS, MAX_ROWS } = require('./_sync.js');
@@ -58,20 +58,14 @@ module.exports = async (req, res) => {
 
   if (req.method !== 'POST') { res.status(405).json({ error: 'GET, POST or DELETE' }); return; }
 
-  if (!isScheduler(req) && !devBypass()) {
-    const session = getSession(req);
-    if (!session) { res.status(401).json({ error: 'Not authenticated', login: '/api/auth/login' }); return; }
-    if (!isAdmin(session.email)) {
-      res.status(403).json({
-        error: 'Syncing is limited to admins. Add this address to the ADMIN_EMAILS environment variable.'
-      });
-      return;
-    }
-  }
+  // A scheduler holding CRON_SECRET skips the guard. Everyone else goes through
+  // the same requireAdmin the SQL console and DELETE use, so the shared site
+  // password is accepted here too rather than only a Google session.
+  if (!isScheduler(req) && !requireAdmin(req, res)) return;
 
   if (!db.isConfigured()) {
     res.status(400).json({
-      error: 'DATABRICKS_TOKEN is not configured, so there is nothing to sync from. The dashboard is serving demo data.'
+      error: 'No Databricks credentials are configured, so there is nothing to sync from. The dashboard is serving demo data.'
     });
     return;
   }
