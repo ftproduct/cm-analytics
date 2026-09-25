@@ -366,4 +366,44 @@ console.log('\naccess control');
   });
 }
 
+// ---------------------------------------------------------------------------
+// View intros
+//
+// The one-liner under the tab strip is keyed by tab id. Rename a tab and the
+// line silently disappears, which nothing else would catch.
+// ---------------------------------------------------------------------------
+console.log('\nview intros');
+{
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+
+  const introBlock = /const VIEW_INTRO = \{([\s\S]*?)\n  \};/.exec(appSrc);
+  const introKeys = introBlock
+    ? [...introBlock[1].matchAll(/^\s{4}(\w+):/gm)].map(m => m[1])
+    : [];
+  const tabIds = [...htmlSrc.matchAll(/data-tab="(\w+)"/g)].map(m => m[1]);
+
+  check('every view intro is keyed to a tab that exists', () => {
+    assert.ok(introKeys.length, 'VIEW_INTRO not found in public/app.js');
+    for (const key of introKeys) {
+      assert.ok(tabIds.includes(key), `VIEW_INTRO has "${key}", which is not a tab in index.html`);
+    }
+  });
+
+  check('the six leadership views all carry an intro line', () => {
+    for (const key of ['overview', 'map', 'demand', 'inventory', 'matching', 'people']) {
+      assert.ok(introKeys.includes(key), `the "${key}" view has no intro line`);
+    }
+  });
+
+  check('the intro element exists and stays hideable', () => {
+    assert.ok(/id="viewIntro"/.test(htmlSrc), 'index.html has no #viewIntro element');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'), 'utf8');
+    const rule = /\.view-intro \{([^}]*)\}/.exec(css);
+    assert.ok(rule, '.view-intro has no style rule');
+    assert.ok(!/display\s*:/.test(rule[1]),
+      '.view-intro sets display, which outranks the [hidden] attribute — the line would show on every tab');
+  });
+}
+
 snapshotChecks().catch(e => { console.error('\n' + e.stack); process.exit(1); });
