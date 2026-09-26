@@ -57,6 +57,10 @@ the engineering hub at the repository root.
 | `ADMIN_EMAILS` | sync + SQL console | Comma-separated. These addresses can trigger a sync and use the catalog browser and SQL console. |
 | `KV_REST_API_URL` | the cache | Upstash Redis REST URL. Without it the snapshot is not durable — see below. |
 | `KV_REST_API_TOKEN` | the cache | Upstash Redis REST token |
+| `LLM_BASE_URL` | the assistant | LiteLLM (or any OpenAI-compatible) gateway root, e.g. `https://litellm.internal/v1`. With or without the `/v1`. |
+| `LLM_API_KEY` | the assistant | The gateway's virtual key |
+| `LLM_MODEL` | the assistant | Whatever name the gateway routes on, e.g. `claude-haiku-4-5` |
+| `LLM_TIMEOUT_MS` | optional | Per-call timeout. Default `20000`. |
 | `MA_SYNC_DAYS` | optional | How many days each sync pulls. Default `180`. |
 | `MA_SYNC_MAX_ROWS` | optional | Row ceiling per entity per sync. Default `200000`. |
 | `MA_SNAPSHOT_CHUNK_CHARS` | optional | Characters per KV chunk. Default `480000`, sized for a 1 MB request limit. |
@@ -323,3 +327,32 @@ light palette, and follows both the OS setting and the in-app toggle.
   in the same window. It is an upper bound on what better matching could have
   recovered — the two sides still have to agree on timing, vehicle type and
   price — so read it as the size of the opportunity, not a guaranteed recovery.
+
+## The assistant
+
+A floating "Ask" bubble answers questions about the cached snapshot in one to
+three lines. It appears only when `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`
+are all set; without them `/api/ask` returns 503 and the dashboard looks exactly
+as it did before.
+
+It works in two model calls, and the model never sees a row:
+
+1. **Plan** — the question plus a capability card (the metric kinds, the
+   dimensions `config/schema.json` actually maps, the filter values, today's
+   date). The model replies with a metric spec: the same JSON `/api/metrics`
+   takes.
+2. **Validate** — that spec goes through `api/_specs.js`, the same validator the
+   dashboard uses. An invented kind or an unmapped dimension is rejected and the
+   planner gets one corrective retry.
+3. **Execute** — the engine runs the spec against the snapshot. No Databricks
+   query, so a question costs nothing but the tokens.
+4. **Phrase** — the computed numbers (top 8 rows, ~4 KB) go back for the
+   sentence.
+
+So an answer cannot contain a number the engine did not produce, and every
+answer carries the spec behind it — "Show the numbers" prints the rows, and
+"Open as a view" deep-links the dashboard to the same tab and filters.
+
+Questions are scoped to the dashboard's current filters by default; the chip
+above the input turns that off. Live mode is refused — press **Sync** first,
+since a chat invites far more queries than a dashboard tab does.
