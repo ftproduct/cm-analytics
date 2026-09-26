@@ -1717,10 +1717,29 @@
     setup: renderSetup
   };
 
+  // One line per view, above the filters: what question this tab answers, so a
+  // reader landing on a shared link knows what they are looking at before they
+  // start reading panel titles. Tabs that explain themselves (Explore, Setup)
+  // are left out rather than given filler.
+  const VIEW_INTRO = {
+    overview: 'Marketplace health in one screen — demand in, fill rate out, and where the gap is widening.',
+    map: 'Demand and fill rate by geography — the regional shape of the gap, before you drill into lanes.',
+    demand: "Every demand raised, cut by lane, LSP and PSA — what filled, what didn't, and why.",
+    inventory: 'The supply side — how much inventory was offered, how much converted, and where it stalls.',
+    matching: 'The two sides against each other — where demand outruns inventory, and where inventory sits with no demand.',
+    people: 'Who moves the needle — PSA response and conversion, LSP fill rate and reliability.'
+  };
+
   async function render() {
     Charts.hideTip();
     document.querySelectorAll('.tab').forEach(t =>
       t.setAttribute('aria-selected', String(t.dataset.tab === State.tab)));
+
+    const intro = document.getElementById('viewIntro');
+    const introText = VIEW_INTRO[State.tab] || '';
+    intro.textContent = introText;
+    intro.hidden = !introText;
+
     // Setup describes the deployment, not a slice of data — filters do nothing there.
     document.getElementById('filterBar').hidden = State.tab === 'setup';
     const fn = TABS[State.tab] || renderOverview;
