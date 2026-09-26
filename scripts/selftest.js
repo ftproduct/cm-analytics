@@ -193,16 +193,17 @@ check('movers only report periods with comparable volume on both sides', () => {
   }
 });
 
-// The allowlist in api/metrics.js is a third copy of the metric list, beside the
+// The allowlist in api/_specs.js is a third copy of the metric list, beside the
 // engines that implement them and the frontend that asks for them. A kind that
 // falls out of step is rejected at the gate and the panel reads "Unsupported
 // metric" even though the implementation is right there -- which is exactly how
 // officeHours shipped broken. Compare the three by reading the source.
 function metricKinds() {
   const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const kindsBlock = /const KINDS = new Set\(\[([\s\S]*?)\]\)/.exec(read('api/_specs.js'));
+  assert.ok(kindsBlock, 'api/_specs.js no longer declares KINDS — the allowlist guard is blind');
   const allowed = new Set(
-    (/const KINDS = new Set\(\[([\s\S]*?)\]\)/.exec(read('api/metrics.js'))[1].match(/'([a-zA-Z]+)'/g) || [])
-      .map(s => s.replace(/'/g, '')));
+    (kindsBlock[1].match(/'([a-zA-Z]+)'/g) || []).map(s => s.replace(/'/g, '')));
   const implemented = new Set(
     (read('api/_engine.js').match(/^    case '([a-zA-Z]+)':/gm) || [])
       .map(s => s.replace(/.*'([a-zA-Z]+)'.*/, '$1')));
@@ -217,12 +218,12 @@ const kinds = metricKinds();
 check('every metric the frontend requests is allowed by the API', () => {
   const missing = [...kinds.requested].filter(k => !kinds.allowed.has(k));
   assert.deepStrictEqual(missing, [],
-    `the frontend asks for ${missing.join(', ')} but api/metrics.js rejects it`);
+    `the frontend asks for ${missing.join(", ")} but api/_specs.js rejects it`);
 });
 check('every allowed metric is implemented by the engine', () => {
   const orphaned = [...kinds.allowed].filter(k => !kinds.implemented.has(k));
   assert.deepStrictEqual(orphaned, [],
-    `api/metrics.js allows ${orphaned.join(', ')} but _engine.js does not implement it`);
+    `api/_specs.js allows ${orphaned.join(", ")} but _engine.js does not implement it`);
 });
 
 // The snapshot cache is only safe if a restored dataset produces byte-identical
@@ -366,4 +367,225 @@ console.log('\naccess control');
   });
 }
 
-snapshotChecks().catch(e => { console.error('\n' + e.stack); process.exit(1); });
+// ---------------------------------------------------------------------------
+// Assistant
+//
+// The chat lets a language model choose what to query. These assert the two
+// things that keeps safe: the model can only name what the schema maps, and
+// whatever it returns goes through the same validator the dashboard uses. The
+// end-to-end check runs a whole turn against a stubbed gateway -- no network,
+// no key -- so the planner/executor/phraser contract is covered on every run.
+// ---------------------------------------------------------------------------
+async function assistantChecks() {
+  console.log('\nassistant');
+  const specs = require('../api/_specs.js');
+  const askMod = require('../api/_ask.js');
+  const llmMod = require('../api/_llm.js');
+
+  check('metrics.js uses the shared validator rather than its own copy', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'api', 'metrics.js'), 'utf8');
+    assert.ok(/require\('\.\/_specs\.js'\)/.test(src), 'metrics.js must require _specs.js');
+    assert.ok(!/function sanitiseSpec/.test(src),
+      'metrics.js defines its own sanitiseSpec again — the chat and the dashboard would drift apart');
+  });
+
+  // The fixture must be the shape /api/filters really returns -- rows of
+  // { value, count } -- or this suite passes while the live card is empty.
+  const realOptions = engine.filterOptions({ from: '2026-06-01', to: '2026-09-17' }, demo.build());
+  const card = askMod.capabilityCard({
+    today: '2026-09-26',
+    window: { from: '2026-06-01', to: '2026-09-17' },
+    options: realOptions,
+    mode: 'demo'
+  });
+
+  check('the capability card describes every metric the API allows', () => {
+    for (const kind of specs.KINDS) {
+      assert.ok(card.includes(`  ${kind} —`), `the card never mentions "${kind}", so the planner cannot pick it`);
+    }
+  });
+
+  check('the card offers only dimensions the schema actually maps', () => {
+    const demandLine = /demand: (.+)/.exec(card);
+    assert.ok(demandLine, 'no demand dimension line in the card');
+    const offered = demandLine[1].split(', ').map(s => s.split(' ')[0]);
+    const mapped = S.availableDimensions('demand');
+    for (const key of offered) {
+      assert.ok(mapped[key], `the card offers "${key}" but config/schema.json does not map it`);
+    }
+  });
+
+  check('the card lists real filter values, not an empty placeholder', () => {
+    assert.ok(!card.includes('(no filter values loaded)'),
+      'the card has no filter values — the option row shape changed and the planner is flying blind');
+    const lspRow = /^ {2}lsp: (.+)$/m.exec(card);
+    assert.ok(lspRow, 'no lsp filter line in the card');
+    const offered = lspRow[1].split(' | ')[0];
+    const real = realOptions.lsp.map(o => o.value);
+    assert.ok(real.includes(offered), `the card offers lsp "${offered}", which is not a value in the data`);
+  });
+
+  check('unfulfilment reasons reach the card despite their per-entity option key', () => {
+    assert.ok(/^ {2}reason: .+/m.test(card),
+      'filterOptions returns reasons under demandReason; the card must still offer them as "reason"');
+  });
+
+  check('a plausible plan survives validation', () => {
+    const out = askMod.validatePlan({
+      intent: 'worst lanes by unfulfilled volume',
+      specs: [{ entity: 'demand', kind: 'group', groupBy: 'lsp', limit: 5, filters: { from: '2026-08-01', to: '2026-08-31', outcome: 'fail' } }]
+    }, {});
+    assert.strictEqual(out.specs.length, 1);
+    assert.strictEqual(out.specs[0].kind, 'group');
+    assert.strictEqual(out.specs[0].filters.from, '2026-08-01');
+    assert.strictEqual(out.specs[0].filters.outcome, 'fail');
+  });
+
+  check('an invented metric is rejected', () => {
+    assert.throws(
+      () => askMod.validatePlan({ specs: [{ entity: 'demand', kind: 'profitByQuarter' }] }, {}),
+      /Unsupported metric/);
+  });
+
+  check('an unmapped dimension is rejected rather than silently dropped', () => {
+    assert.throws(
+      () => askMod.validatePlan({ specs: [{ entity: 'demand', kind: 'group', groupBy: 'driverMoodScore' }] }, {}),
+      /not a demand dimension/);
+  });
+
+  check('an unknown filter key is rejected, not silently dropped', () => {
+    // The dangerous case: the spec still runs, but unfiltered, while the
+    // phraser is told the question was about one carrier.
+    assert.throws(
+      () => askMod.validatePlan({
+        intent: 'demand for carrier Foo',
+        specs: [{ entity: 'demand', kind: 'summary', filters: { from: '2026-06-01', to: '2026-09-17', carrier: ['Foo Logistics'] } }]
+      }, {}),
+      /Unknown filter: carrier/);
+  });
+
+  check('the real filter keys are still accepted', () => {
+    const out = askMod.validatePlan({
+      specs: [{ entity: 'demand', kind: 'summary', filters: { from: '2026-06-01', to: '2026-09-17', lsp: ['Shree Roadlines'], outcome: 'fail' } }]
+    }, {});
+    assert.deepStrictEqual(out.specs[0].filters.lsp, ['Shree Roadlines']);
+  });
+
+  check('a truncated snapshot reports the coverage it really has', () => {
+    const src = {
+      mode: 'cached',
+      snapshot: {
+        window: { from: '2026-01-01', to: '2026-09-17' },
+        truncated: { demand: true },
+        covers: { demandFrom: '2026-05-04', inventoryFrom: '2026-04-02', bidsFrom: '2026-04-30' }
+      }
+    };
+    const w = askMod.coveredWindow(src, {});
+    assert.strictEqual(w.from, '2026-05-04', 'must use the latest entity start, not the requested one');
+    assert.strictEqual(w.to, '2026-09-17');
+    assert.strictEqual(w.truncated, true);
+
+    const whole = askMod.coveredWindow(
+      { mode: 'cached', snapshot: { window: { from: '2026-01-01', to: '2026-09-17' } } }, {});
+    assert.strictEqual(whole.from, '2026-01-01', 'an untruncated sync keeps its requested window');
+    assert.ok(!whole.truncated);
+  });
+
+  check('the card warns the planner off dates a truncated sync never pulled', () => {
+    const warned = askMod.capabilityCard({
+      today: '2026-09-26',
+      window: { from: '2026-05-04', to: '2026-09-17', truncated: true },
+      options: realOptions,
+      mode: 'cached'
+    });
+    assert.ok(/hit its row limit/.test(warned), 'a truncated window must say so in the card');
+  });
+
+  check('a clarification passes through instead of becoming a query', () => {
+    const out = askMod.validatePlan({ clarify: 'Which month did you mean?' }, {});
+    assert.strictEqual(out.clarify, 'Which month did you mean?');
+    assert.ok(!out.specs);
+  });
+
+  check('the planner cannot widen a scan past the spec limits', () => {
+    const out = askMod.validatePlan({
+      specs: [{ entity: 'demand', kind: 'rows', limit: 999999, filters: { from: '2026-01-01', to: '2026-09-01' } }]
+    }, {});
+    assert.strictEqual(out.specs[0].limit, 2000);
+  });
+
+  check('only the first few specs of an over-long plan are run', () => {
+    const many = Array.from({ length: 10 }, () => ({ entity: 'demand', kind: 'summary' }));
+    const out = askMod.validatePlan({ specs: many }, {});
+    assert.strictEqual(out.specs.length, askMod.MAX_PLAN_SPECS);
+  });
+
+  check('the phraser payload is trimmed but keeps its numbers', () => {
+    const big = { rows: Array.from({ length: 50 }, (_, i) => ({ key: `lane-${i}`, total: i, rate: 12.345 })) };
+    const small = askMod.shrinkPayload(big);
+    assert.strictEqual(small.rows.length, 8);
+    assert.strictEqual(small.rows[0].key, 'lane-0');
+    assert.strictEqual(small.rows[3].rate, 12.3, 'rates should round to one decimal, not be dropped');
+    assert.ok(small.rows_truncated.includes('50 rows total'));
+  });
+
+  // A whole turn with the gateway stubbed. The planner returns a spec, the
+  // engine computes it for real, and the phraser is handed the result -- so
+  // this fails if the spec shape, the executor or the payload contract breaks.
+  const realChat = llmMod.chat;
+  try {
+    let phrasePrompt = null;
+    llmMod.chat = async ({ messages }) => {
+      const isPlan = messages[0].content.startsWith('You turn questions');
+      if (isPlan) {
+        return { text: '```json\n{"intent":"fill rate","specs":[{"id":"a","entity":"demand","kind":"summary","filters":{"from":"2026-06-01","to":"2026-09-17"}}]}\n```' };
+      }
+      phrasePrompt = messages[1].content;
+      return { text: 'Fill rate was 68.9% over the window.' };
+    };
+
+    const turn = await askMod.ask({ question: 'what is the fill rate?', filters: {} });
+
+    check('a full turn plans, executes and phrases', () => {
+      assert.strictEqual(turn.specs.length, 1);
+      assert.strictEqual(turn.specs[0].kind, 'summary');
+      assert.ok(turn.answer.includes('68.9'));
+    });
+
+    check('the phraser is given engine numbers, never the raw dataset', () => {
+      assert.ok(phrasePrompt, 'the phraser was never called');
+      assert.ok(/"total":\d+/.test(phrasePrompt), 'computed totals should reach the phraser');
+      assert.ok(phrasePrompt.length < 6000, `the phraser prompt is ${phrasePrompt.length} chars — the dataset is leaking into it`);
+      assert.ok(!/createdDate/.test(phrasePrompt), 'raw row fields reached the phraser');
+    });
+
+    check('row-level answers deep-link to the tab that shows rows', () => {
+    // chat.js is a browser IIFE, so assert on its routing table. Only the
+    // explorer renders kind:'rows' -- app.js requests it from renderExplore.
+    const chatSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+    assert.ok(/spec\.kind === 'rows'\) return 'explore'/.test(chatSrc),
+      "kind 'rows' must route to the explorer; the Demand tab has no row panel");
+    const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+    const exploreStart = appSrc.indexOf('async function renderExplore');
+    assert.ok(exploreStart > 0 && appSrc.slice(exploreStart, exploreStart + 2500).includes("kind: 'rows'"),
+      'renderExplore no longer requests rows — the chat routing assumption is stale');
+  });
+
+  check('fenced JSON from a chatty model still parses', () => {
+      const parsed = llmMod.parseJsonObject('Sure!\n```json\n{"a":1}\n```');
+      assert.strictEqual(parsed.a, 1);
+    });
+
+    check('a gateway URL is accepted with or without its /v1 suffix', () => {
+      assert.strictEqual(llmMod.completionsUrl('https://gw/v1'), 'https://gw/v1/chat/completions');
+      assert.strictEqual(llmMod.completionsUrl('https://gw'), 'https://gw/v1/chat/completions');
+      assert.strictEqual(llmMod.completionsUrl('https://gw/v1/chat/completions'), 'https://gw/v1/chat/completions');
+    });
+  } finally {
+    llmMod.chat = realChat;
+  }
+}
+
+assistantChecks()
+  .then(snapshotChecks)
+  .catch(e => { console.error('\n' + e.stack); process.exit(1); });
