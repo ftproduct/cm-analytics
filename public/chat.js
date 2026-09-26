@@ -69,14 +69,27 @@
     return parts.join(' · ') || 'all cached data';
   }
 
-  // Which tab shows this kind of answer, so "open as a view" lands somewhere
-  // that actually contains the number rather than just the right filters.
+  // The Demand tab's breakdowns are fixed panels, not an arbitrary group-by.
+  // A grouping outside this set has no panel there, so the link would carry the
+  // right filters to a page that cannot show the answer.
+  const DEMAND_PANEL_DIMS = new Set([
+    'region', 'superClusterLane', 'lsp', 'vehicleType', 'shipper', 'reason'
+  ]);
+
+  // Which tab actually shows this kind of answer. "Open as a view" is only
+  // worth offering if the page it opens contains the number that was quoted --
+  // otherwise it is a link to the right filters and the wrong question.
   function tabForSpec(spec) {
     if (!spec) return 'overview';
+    if (spec.entity === 'bids') return 'bids';
+    // Row-level answers live on the explorer; the Demand tab has no row panel.
+    if (spec.kind === 'rows') return 'explore';
     if (['leakage', 'imbalance', 'invMatch', 'invMatchGroup', 'invMatchDemandRows'].includes(spec.kind)) return 'matching';
     if (['psa', 'lsp'].includes(spec.groupBy)) return 'people';
     if (spec.entity === 'inventory') return 'inventory';
-    if (spec.entity === 'bids') return 'bids';
+    // The explorer can group by any mapped dimension, so it is the honest
+    // destination for a cut the fixed panels do not carry.
+    if (spec.groupBy && !DEMAND_PANEL_DIMS.has(spec.groupBy)) return 'explore';
     return 'demand';
   }
 

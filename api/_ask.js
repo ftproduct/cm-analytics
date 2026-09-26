@@ -19,7 +19,7 @@
 const llm = require('./_llm.js');
 const source = require('./_source.js');
 const S = require('./_schema.js');
-const { KINDS, FILTER_KEYS, sanitiseSpecWithOwnWindow } = require('./_specs.js');
+const { KINDS, FILTER_KEYS, sanitiseSpecWithOwnWindow, unknownFilterKeys } = require('./_specs.js');
 
 const MAX_PLAN_SPECS = 3;
 // The phraser's whole input. Small on purpose: past a few hundred numbers a
@@ -67,12 +67,17 @@ function capabilityCard({ today, window, options = {}, mode }) {
     .map(d => `${d.key} (${d.label})`).join(', ');
 
   // A handful of real values per filter, so the planner spells them the way the
-  // data does rather than guessing at casing.
+  // data does rather than guessing at casing. /api/filters returns rows of
+  // { value, count } -- both engines agree on that shape -- and the unfulfilment
+  // reasons arrive under per-entity keys rather than the `reason` filter name.
+  const OPTION_KEY = { reason: 'demandReason' };
   const sampleFilters = FILTER_KEYS
     .map(key => {
-      const vals = options[key];
+      const vals = options[OPTION_KEY[key] || key];
       if (!Array.isArray(vals) || !vals.length) return null;
-      const sample = vals.slice(0, 8).map(v => (typeof v === 'string' ? v : v?.key)).filter(Boolean);
+      const sample = vals.slice(0, 8)
+        .map(v => (typeof v === 'string' ? v : v?.value))
+        .filter(v => typeof v === 'string' && v);
       if (!sample.length) return null;
       return `  ${key}: ${sample.join(' | ')}${vals.length > 8 ? ` … ${vals.length} total` : ''}`;
     })
@@ -81,7 +86,7 @@ function capabilityCard({ today, window, options = {}, mode }) {
 
   return `You turn questions about a freight marketplace into metric specs. You never see the data; an engine runs your specs and another step writes the answer.
 
-Today is ${today}. The cached data covers ${window.from || 'an unknown start'} to ${window.to || 'an unknown end'}${mode === 'demo' ? ' (generated demo data)' : ''}.
+Today is ${today}. The cached data covers ${window.from || 'an unknown start'} to ${window.to || 'an unknown end'}${mode === 'demo' ? ' (generated demo data)' : ''}${window.truncated ? '. That sync hit its row limit, so nothing before that start date exists — never plan a window that begins earlier' : ''}.
 
 Two entities:
   demand    — loads the shipper asked for. "Fulfilled" means a carrier took it.
@@ -147,6 +152,14 @@ function validatePlan(parsed, fallbackFilters) {
   if (!raw.length) throw new Error('No specs returned. Reply with {"specs":[...]} or {"clarify":"..."}.');
 
   const specs = raw.map((s, i) => {
+    // sanitiseFilters drops a key it does not know. For the chat that would
+    // mean running an unfiltered query while the phraser still believes the
+    // question was narrowed -- and presenting the whole snapshot as the answer
+    // for one carrier. Catch it here so the planner gets a chance to correct.
+    const stray = unknownFilterKeys(s?.filters || {});
+    if (stray.length) {
+      throw new Error(`Unknown filter${stray.length > 1 ? 's' : ''}: ${stray.join(', ')}. Use only the filter names listed.`);
+    }
     const spec = sanitiseSpecWithOwnWindow({ ...s, id: s?.id || `s${i}` }, fallbackFilters);
     // sanitiseSpec silently drops an unknown groupBy rather than throwing, but
     // for a chat that would mean answering a different question than the one
@@ -250,6 +263,25 @@ Data: ${resultsJson}`
 // The whole turn
 // ---------------------------------------------------------------------------
 
+// What the snapshot actually holds, which is not always what the sync asked for.
+// A sync that hits MA_SYNC_MAX_ROWS keeps the requested window in `window` and
+// records the real earliest row in `covers`. Telling the planner the requested
+// window would have it happily build questions about months that were cut off,
+// and get empty or half-populated answers back with nothing flagging why.
+function coveredWindow(src, filters = {}) {
+  const requested = src.snapshot?.window || { from: filters.from || null, to: filters.to || null };
+  const covers = src.snapshot?.covers;
+  if (!src.snapshot?.truncated || !covers) return requested;
+
+  // The latest of the per-entity starts: before it, at least one entity is
+  // missing rows, so a cross-entity answer there would be quietly wrong.
+  const starts = [covers.demandFrom, covers.inventoryFrom, covers.bidsFrom]
+    .filter(d => typeof d === 'string' && d);
+  if (!starts.length) return requested;
+  const from = starts.sort().pop();
+  return from > (requested.from || '') ? { ...requested, from, truncated: true } : requested;
+}
+
 async function ask({ question, filters = {}, history = [] }) {
   const startedAt = Date.now();
   const src = await source.resolve();
@@ -259,7 +291,7 @@ async function ask({ question, filters = {}, history = [] }) {
     throw Object.assign(new Error('Press Sync first — the assistant answers from the cached snapshot, not from live queries.'), { status: 409 });
   }
 
-  const window = src.snapshot?.window || { from: filters.from || null, to: filters.to || null };
+  const window = coveredWindow(src, filters);
   // Synchronous on the cached path, a promise on the live one. Filter values
   // are only there to help the planner spell names, so a failure here costs
   // nothing worth failing the turn over.
@@ -314,6 +346,6 @@ async function ask({ question, filters = {}, history = [] }) {
 }
 
 module.exports = {
-  ask, plan, validatePlan, capabilityCard, shrinkResults, shrinkPayload,
+  ask, plan, validatePlan, capabilityCard, coveredWindow, shrinkResults, shrinkPayload,
   assertCardCoversKinds, KIND_NOTES, MAX_PLAN_SPECS
 };

@@ -389,10 +389,13 @@ async function assistantChecks() {
       'metrics.js defines its own sanitiseSpec again — the chat and the dashboard would drift apart');
   });
 
+  // The fixture must be the shape /api/filters really returns -- rows of
+  // { value, count } -- or this suite passes while the live card is empty.
+  const realOptions = engine.filterOptions({ from: '2026-06-01', to: '2026-09-17' }, demo.build());
   const card = askMod.capabilityCard({
     today: '2026-09-26',
     window: { from: '2026-06-01', to: '2026-09-17' },
-    options: { lsp: ['Shree Roadlines'], psa: ['A. Kumar'] },
+    options: realOptions,
     mode: 'demo'
   });
 
@@ -410,6 +413,21 @@ async function assistantChecks() {
     for (const key of offered) {
       assert.ok(mapped[key], `the card offers "${key}" but config/schema.json does not map it`);
     }
+  });
+
+  check('the card lists real filter values, not an empty placeholder', () => {
+    assert.ok(!card.includes('(no filter values loaded)'),
+      'the card has no filter values — the option row shape changed and the planner is flying blind');
+    const lspRow = /^ {2}lsp: (.+)$/m.exec(card);
+    assert.ok(lspRow, 'no lsp filter line in the card');
+    const offered = lspRow[1].split(' | ')[0];
+    const real = realOptions.lsp.map(o => o.value);
+    assert.ok(real.includes(offered), `the card offers lsp "${offered}", which is not a value in the data`);
+  });
+
+  check('unfulfilment reasons reach the card despite their per-entity option key', () => {
+    assert.ok(/^ {2}reason: .+/m.test(card),
+      'filterOptions returns reasons under demandReason; the card must still offer them as "reason"');
   });
 
   check('a plausible plan survives validation', () => {
@@ -433,6 +451,54 @@ async function assistantChecks() {
     assert.throws(
       () => askMod.validatePlan({ specs: [{ entity: 'demand', kind: 'group', groupBy: 'driverMoodScore' }] }, {}),
       /not a demand dimension/);
+  });
+
+  check('an unknown filter key is rejected, not silently dropped', () => {
+    // The dangerous case: the spec still runs, but unfiltered, while the
+    // phraser is told the question was about one carrier.
+    assert.throws(
+      () => askMod.validatePlan({
+        intent: 'demand for carrier Foo',
+        specs: [{ entity: 'demand', kind: 'summary', filters: { from: '2026-06-01', to: '2026-09-17', carrier: ['Foo Logistics'] } }]
+      }, {}),
+      /Unknown filter: carrier/);
+  });
+
+  check('the real filter keys are still accepted', () => {
+    const out = askMod.validatePlan({
+      specs: [{ entity: 'demand', kind: 'summary', filters: { from: '2026-06-01', to: '2026-09-17', lsp: ['Shree Roadlines'], outcome: 'fail' } }]
+    }, {});
+    assert.deepStrictEqual(out.specs[0].filters.lsp, ['Shree Roadlines']);
+  });
+
+  check('a truncated snapshot reports the coverage it really has', () => {
+    const src = {
+      mode: 'cached',
+      snapshot: {
+        window: { from: '2026-01-01', to: '2026-09-17' },
+        truncated: { demand: true },
+        covers: { demandFrom: '2026-05-04', inventoryFrom: '2026-04-02', bidsFrom: '2026-04-30' }
+      }
+    };
+    const w = askMod.coveredWindow(src, {});
+    assert.strictEqual(w.from, '2026-05-04', 'must use the latest entity start, not the requested one');
+    assert.strictEqual(w.to, '2026-09-17');
+    assert.strictEqual(w.truncated, true);
+
+    const whole = askMod.coveredWindow(
+      { mode: 'cached', snapshot: { window: { from: '2026-01-01', to: '2026-09-17' } } }, {});
+    assert.strictEqual(whole.from, '2026-01-01', 'an untruncated sync keeps its requested window');
+    assert.ok(!whole.truncated);
+  });
+
+  check('the card warns the planner off dates a truncated sync never pulled', () => {
+    const warned = askMod.capabilityCard({
+      today: '2026-09-26',
+      window: { from: '2026-05-04', to: '2026-09-17', truncated: true },
+      options: realOptions,
+      mode: 'cached'
+    });
+    assert.ok(/hit its row limit/.test(warned), 'a truncated window must say so in the card');
   });
 
   check('a clarification passes through instead of becoming a query', () => {
@@ -493,7 +559,19 @@ async function assistantChecks() {
       assert.ok(!/createdDate/.test(phrasePrompt), 'raw row fields reached the phraser');
     });
 
-    check('fenced JSON from a chatty model still parses', () => {
+    check('row-level answers deep-link to the tab that shows rows', () => {
+    // chat.js is a browser IIFE, so assert on its routing table. Only the
+    // explorer renders kind:'rows' -- app.js requests it from renderExplore.
+    const chatSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+    assert.ok(/spec\.kind === 'rows'\) return 'explore'/.test(chatSrc),
+      "kind 'rows' must route to the explorer; the Demand tab has no row panel");
+    const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+    const exploreStart = appSrc.indexOf('async function renderExplore');
+    assert.ok(exploreStart > 0 && appSrc.slice(exploreStart, exploreStart + 2500).includes("kind: 'rows'"),
+      'renderExplore no longer requests rows — the chat routing assumption is stale');
+  });
+
+  check('fenced JSON from a chatty model still parses', () => {
       const parsed = llmMod.parseJsonObject('Sure!\n```json\n{"a":1}\n```');
       assert.strictEqual(parsed.a, 1);
     });

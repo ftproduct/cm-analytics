@@ -76,7 +76,21 @@ function sanitiseSpecWithOwnWindow(raw = {}, fallbackFilters = {}) {
   return sanitiseSpec({ ...raw, filters: {} }, sanitiseFilters(base));
 }
 
+// Filter keys the caller asked for that this app does not have.
+//
+// sanitiseFilters drops them, which is right for the dashboard -- the browser
+// only ever sends keys it owns, and a stale bookmark should degrade quietly.
+// It is wrong for the chat: a planner that writes `carrier` instead of `lsp`
+// would get unfiltered numbers back while the phraser still believes it asked
+// about one carrier, and would present the whole snapshot as that carrier's.
+// So /api/ask asks this first and treats a hit as a plan to repair.
+const RESERVED_FILTER_KEYS = new Set(['from', 'to', 'outcome']);
+
+function unknownFilterKeys(raw = {}) {
+  return Object.keys(raw).filter(k => !RESERVED_FILTER_KEYS.has(k) && !FILTER_KEYS.includes(k));
+}
+
 module.exports = {
   KINDS, GRAINS, FILTER_KEYS, MAX_SPECS,
-  sanitiseFilters, sanitiseSpec, sanitiseSpecWithOwnWindow
+  sanitiseFilters, sanitiseSpec, sanitiseSpecWithOwnWindow, unknownFilterKeys
 };
