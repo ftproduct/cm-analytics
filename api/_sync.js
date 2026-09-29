@@ -27,6 +27,16 @@ function col(entity, logical, alias) {
   return `${c || 'NULL'} AS ${alias || logical}`;
 }
 
+// Bot vs manual, projected into all three snapshots. The demand query reads the
+// column bare; the two joined queries reach it through the demand alias. Both
+// go through _schema's one CASE so a snapshot and a live-SQL answer can never
+// disagree about which demands a bot raised.
+function demandSourceSql(alias) {
+  const physical = S.getSchema().demand.columns.source;
+  if (!physical) return `cast(NULL AS string)`;
+  return S.demandSourceCase(alias ? `${alias}.${S.quote(physical)}` : S.col('demand', 'source'));
+}
+
 function demandQuery(from, to, limit) {
   const created = S.reqCol('demand', 'createdAt');
   const fulfilled = S.col('demand', 'fulfilledAt');
@@ -78,6 +88,7 @@ function demandQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql()} AS demandSource,
   ${col('demand', 'originSuperCluster')},
   ${col('demand', 'destinationSuperCluster')}
 FROM ${S.fromRef('demand')}
@@ -185,6 +196,7 @@ function inventoryQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql('d')} AS demandSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${ds} ds
@@ -295,6 +307,7 @@ function bidsQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql('d')} AS demandSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${mb} mb

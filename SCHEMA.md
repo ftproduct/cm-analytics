@@ -71,6 +71,17 @@ One row per demand / indent / load posted by a shipper.
 | `quantity` / `weightTons` | | Vehicle count and tonnage |
 | `expectedPrice` | | Indicative rate. Prices "value at risk" on unfilled demand. |
 | `bookedPrice` | | Final booked rate |
+| `source` | | How the demand was raised. Splits bot-created demand from demand a person typed into the CRM. |
+
+`source` is classified by `demand.botSources` — every value on that list reads
+**Bot**, everything else reads **Manual**, and a blank source is left out of the
+split rather than guessed at. Add a new integration's source string to the list
+rather than changing code:
+
+```jsonc
+"botSources": ["generic_api"]
+```
+
 
 \* `status` is required **unless** `fulfilledAt` is mapped. Fulfilment is
 `status IN (fulfilledStatuses)` when that list is set (preferred), otherwise

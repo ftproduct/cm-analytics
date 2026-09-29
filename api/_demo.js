@@ -221,6 +221,7 @@ function build() {
         isFulfilled: fulfilled,
         unfulfilmentReason: fulfilled ? null : pick(UNFULFILMENT_REASONS, r).name,
         laneType: r() < 0.28 ? 'Power lane' : 'Non power lane',
+        demandSource: r() < 0.62 ? 'Bot' : 'Manual',
         originSuperCluster: o.city,
         destinationSuperCluster: dst.city
       });
@@ -322,6 +323,7 @@ function build() {
         inventoryId: String(100000 + invSeq),
         callNotes: isCalled && r() < 0.35 ? 'Demo call note' : null,
         laneType: r() < 0.28 ? 'Power lane' : 'Non power lane',
+        demandSource: r() < 0.62 ? 'Bot' : 'Manual',
         originSuperCluster: o.city,
         destinationSuperCluster: dst.city
       });

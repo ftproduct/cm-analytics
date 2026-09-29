@@ -33,6 +33,7 @@ const DIM_FIELD = {
   vehicleType: 'vehicleType', materialType: 'materialType', region: 'region',
   branch: 'branch', status: 'status', stage: 'stage',
   laneType: 'laneType',
+  demandSource: 'demandSource',
   originSuperCluster: 'originSuperCluster',
   destinationSuperCluster: 'destinationSuperCluster',
   matchType: 'matchType'
@@ -146,6 +147,7 @@ function applyFilters(rows, entity, f = {}) {
     if (!inList(f.vehicleType, r.vehicleType)) return false;
     if (!inList(f.materialType, r.materialType)) return false;
     if (!inList(f.laneType, r.laneType)) return false;
+    if (!inList(f.demandSource, r.demandSource)) return false;
     if (!inList(f.originSuperCluster, r.originSuperCluster)) return false;
     if (!inList(f.destinationSuperCluster, r.destinationSuperCluster)) return false;
     if (!inList(f.matchType, r.matchType)) return false;
@@ -745,6 +747,10 @@ function filterOptions(filters = {}, dataset = null) {
     vehicleType: merge(merge(distinct(d, 'vehicleType'), distinct(i, 'vehicleType')), distinct(b, 'vehicleType')),
     materialType: distinct(d, 'materialType'),
     laneType: merge(merge(distinct(d, 'laneType'), distinct(i, 'laneType')), distinct(b, 'laneType')),
+    demandSource: merge(
+      merge(distinct(d, 'demandSource'), distinct(i, 'demandSource')),
+      distinct(b, 'demandSource')
+    ),
     originSuperCluster: merge(
       merge(distinct(d, 'originSuperCluster'), distinct(i, 'originSuperCluster')),
       distinct(b, 'originSuperCluster')

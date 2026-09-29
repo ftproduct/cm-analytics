@@ -216,6 +216,34 @@ function unfulfilmentReasonExpr() {
   return null;
 }
 
+// Bot vs manual. A demand raised through the integration API was created by a
+// bot; anything else was typed by a person in the CRM. Which sources count as
+// bot lives in config/schema.json (demand.botSources), so a new integration is
+// a config change rather than a deploy, and everything that is not on that list
+// falls to Manual -- a source nobody has seen yet is never silently dropped.
+const DEFAULT_BOT_SOURCES = ['generic_api'];
+
+function botSourceList() {
+  const configured = getSchema().demand.botSources;
+  const values = Array.isArray(configured) && configured.length ? configured : DEFAULT_BOT_SOURCES;
+  return values.map(v => `'${String(v).trim().toLowerCase().replace(/'/g, "''")}'`);
+}
+
+// One classification expression, parameterised by how the column is addressed,
+// so raw SQL (`source`) and the snapshot's joins (`d.source`) cannot drift.
+function demandSourceCase(expr) {
+  return `CASE
+    WHEN ${expr} IS NULL OR trim(cast(${expr} AS string)) = '' THEN NULL
+    WHEN lower(trim(cast(${expr} AS string))) IN (${botSourceList().join(', ')}) THEN 'Bot'
+    ELSE 'Manual'
+  END`;
+}
+
+function demandSourceExpr() {
+  const c = col('demand', 'source');
+  return c ? demandSourceCase(c) : null;
+}
+
 function statusListSql(values) {
   return (values || []).map(v => `'${String(v).replace(/'/g, "''")}'`);
 }
@@ -276,6 +304,7 @@ const DIMENSIONS = {
     vehicleType: { label: 'Vehicle type', expr: () => col('demand', 'vehicleType') },
     materialType:{ label: 'Material',     expr: () => col('demand', 'materialType') },
     laneType:    { label: 'Lane type',    expr: () => col('demand', 'laneType') },
+    demandSource:{ label: 'Demand source', expr: () => demandSourceExpr() },
     originSuperCluster: { label: 'Origin super cluster', expr: () => col('demand', 'originSuperCluster') },
     destinationSuperCluster: { label: 'Destination super cluster', expr: () => col('demand', 'destinationSuperCluster') },
     region:      { label: 'Zone',         expr: () => col('demand', 'region') || `cast(NULL AS string)` },
@@ -324,6 +353,7 @@ function dimensionExpr(entity, key) {
 module.exports = {
   getSchema, tableRef, fromRef, col, reqCol, has, quote,
   laneExpr, superClusterLaneExpr, unfulfilmentReasonExpr,
+  demandSourceExpr, demandSourceCase,
   isFulfilledExpr, isConvertedExpr, excludeStatusesExpr,
   inventoryJoinedSubquery,
   DIMENSIONS, availableDimensions, dimensionExpr
