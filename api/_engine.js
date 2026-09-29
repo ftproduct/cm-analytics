@@ -35,6 +35,7 @@ const DIM_FIELD = {
   laneType: 'laneType',
   demandSource: 'demandSource',
   callSource: 'callSource',
+  inventoryType: 'inventoryType',
   originSuperCluster: 'originSuperCluster',
   destinationSuperCluster: 'destinationSuperCluster',
   matchType: 'matchType'
@@ -758,6 +759,7 @@ function filterOptions(filters = {}, dataset = null) {
       distinct(b, 'demandSource')
     ),
     callSource: merge(distinct(i, 'callSource'), distinct(b, 'callSource')),
+    inventoryType: merge(distinct(i, 'inventoryType'), distinct(b, 'inventoryType')),
     originSuperCluster: merge(
       merge(distinct(d, 'originSuperCluster'), distinct(i, 'originSuperCluster')),
       distinct(b, 'originSuperCluster')

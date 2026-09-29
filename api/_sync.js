@@ -31,14 +31,13 @@ function col(entity, logical, alias) {
 // column bare; the two joined queries reach it through the demand alias. Both
 // go through _schema's one CASE so a snapshot and a live-SQL answer can never
 // disagree about which demands a bot raised.
-// Manual vs AI-called, projected alongside demandSource. The column lives on
-// phase2poc_demand_supply, so both joined snapshots reach it through `ds`.
-// Unmapped (or no AI values configured) collapses to NULL, which drops the
-// dimension out of the facets rather than inventing a split.
-function callSourceSql(alias) {
-  const physical = S.getSchema().inventory.columns.callSource;
-  if (!physical) return `cast(NULL AS string)`;
-  return S.callSourceCase(`${alias}.${S.quote(physical)}`) || `cast(NULL AS string)`;
+// Manual vs AI-called, from TLMS `inventory_type`. The raw value rides along
+// as inventoryType so the distinct values are readable off /api/filters -- that
+// is how you find out which ones mean the AI caller before configuring
+// aiCallSources. With no AI values configured the split collapses to NULL and
+// drops out of the facets rather than inventing one.
+function callSourceSql(expr) {
+  return S.callSourceCase(expr) || `cast(NULL AS string)`;
 }
 
 function demandSourceSql(alias) {
@@ -207,12 +206,15 @@ function inventoryQuery(from, to, limit) {
     ELSE 'Non power lane'
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
-  ${callSourceSql('ds')} AS callSource,
+  it.inventory_type AS inventoryType,
+  ${callSourceSql('it.inventory_type')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${ds} ds
 INNER JOIN ${demand} d
   ON d.id = ds.demand_id
+${S.inventoryTypeJoin('it')}
+  ON it.reference_id = ds.id
 WHERE upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY'
   AND d.origin_super_cluster_name IS NOT NULL
   AND d.created_at IS NOT NULL
@@ -319,7 +321,8 @@ function bidsQuery(from, to, limit) {
     ELSE 'Non power lane'
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
-  ${callSourceSql('ds')} AS callSource,
+  lower(trim(mb.inventory_type)) AS inventoryType,
+  ${callSourceSql('mb.inventory_type')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${mb} mb

@@ -270,9 +270,33 @@ function callSourceCase(expr) {
   END`;
 }
 
+// Where the value comes from: phase2poc_trip_location_mapping_static
+// (`inventory_type`). It is a different table at a different grain from the
+// inventory fact -- the reconcile in sql/reconcile_mb1042_vs_app.sql proves the
+// only overlap is TLMS.reference_id -> demand_supply.id -- and one FO-name
+// session can hold several TLMS rows, so it is reduced to one value per
+// reference_id before the join. Joining it raw would fan a single inventory
+// match into several and inflate every count on the tab.
+//
+// min() is the same alphabetical bias Metabase's own card 6280 applies, so a
+// reference_id whose rows disagree resolves the way the source dashboard does.
+function inventoryTypeJoin(alias = 'it') {
+  return `LEFT JOIN (
+    SELECT reference_id, min(lower(trim(inventory_type))) AS inventory_type
+    FROM ${qualifiedName('phase2poc_trip_location_mapping_static')}
+    WHERE reference_id IS NOT NULL
+      AND nullif(trim(inventory_type), '') IS NOT NULL
+    GROUP BY reference_id
+  ) ${alias}`;
+}
+
+// Deliberately null: the classification needs the TLMS join above, and the
+// live-SQL path queries phase2poc_demand_supply on its own. Returning an
+// expression here would make the dimension look available in the unsynced
+// fallback and then fail at query time. The snapshot carries it instead, which
+// is how the dashboard actually serves -- see SCHEMA.md.
 function callSourceExpr() {
-  const c = col('inventory', 'callSource');
-  return c ? callSourceCase(c) : null;
+  return null;
 }
 
 function statusListSql(values) {
@@ -386,7 +410,7 @@ module.exports = {
   getSchema, tableRef, fromRef, col, reqCol, has, quote,
   laneExpr, superClusterLaneExpr, unfulfilmentReasonExpr,
   demandSourceExpr, demandSourceCase,
-  callSourceExpr, callSourceCase,
+  callSourceExpr, callSourceCase, inventoryTypeJoin,
   isFulfilledExpr, isConvertedExpr, excludeStatusesExpr,
   inventoryJoinedSubquery,
   DIMENSIONS, availableDimensions, dimensionExpr

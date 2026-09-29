@@ -128,19 +128,40 @@ One row per truck / capacity posting by a carrier.
 | `nonConversionReason` | | Why it never converted |
 | `matchedDemandId` | | Demand it was matched to |
 | `askingPrice` | | Quoted rate |
-| `callSource` | | What placed the call to the carrier. Splits AI-called inventory from inventory a person worked. |
 
-`callSource` needs both halves: the column, and `aiCallSources` listing the
-values that mean the AI caller. A match with no call source reads **Not
-called** — its own bucket, so untouched inventory is never counted as human
-effort. Everything else reads **Manual**. Map only one half and the dimension
-stays unavailable and the gap is listed on the **Setup** tab, rather than a
-chart reporting every call as manual:
+### AI-called vs manual inventory
+
+This one is configured by **value, not by column**. How an inventory entry
+arrived is recorded as `inventory_type` on
+`phase2poc_trip_location_mapping_static`, which is a different table at a
+different grain from the inventory fact — the only overlap is
+`reference_id → phase2poc_demand_supply.id` (see
+[`sql/reconcile_mb1042_vs_app.sql`](./sql/reconcile_mb1042_vs_app.sql)). The
+sync collapses it to one value per `reference_id` before joining, because one
+FO-name session can hold several rows and a raw join would multiply inventory
+matches.
+
+List the values that mean the AI caller:
 
 ```jsonc
-"columns": { "callSource": "call_source" },
-"aiCallSources": ["ai_caller"]
+"aiCallSources": ["ai_call"]
 ```
+
+Everything else reads **Manual**, and a match TLMS never saw reads **Not
+called** — its own bucket, so untouched inventory is never counted as human
+effort. Leave the list empty and the split stays unavailable and the gap is
+listed on the **Setup** tab, rather than a chart reporting every call as
+manual.
+
+To find the real values, sync and then read `inventoryType` from
+`/api/filters` — the raw `inventory_type` rides along in the snapshot for
+exactly that purpose.
+
+Two limits worth knowing. The split lives in the **snapshot**: the unsynced
+live-SQL fallback queries `phase2poc_demand_supply` on its own and does not
+carry it, so the panel and chip are hidden there. And the **FO App bids** tab
+is already filtered to `inventory_type = 'FO_APP'`, so every bid row falls in
+one bucket by definition.
 
 
 \* Same rule as demand: `status` is required unless `convertedAt` is mapped.

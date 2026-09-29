@@ -256,7 +256,7 @@ check('filtering to AI-called returns exactly those matches', () => {
   assert.strictEqual(sumOf(only.rows), ai.total);
 });
 
-check('mapping the column in config is the whole switch-on', () => {
+check('listing the AI values in config is the whole switch-on', () => {
   const file = path.join(__dirname, '..', 'config', 'schema.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
   const prev = process.env.MA_SCHEMA_JSON;
@@ -265,23 +265,20 @@ check('mapping the column in config is the whole switch-on', () => {
     return require('../api/_schema.js');
   };
   try {
-    cfg.inventory.columns.callSource = 'call_source';
-    cfg.inventory.aiCallSources = ['ai_caller'];
+    cfg.inventory.aiCallSources = ['ai_call'];
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
-    const on = reload();
-    const sql = on.callSourceExpr();
-    assert.ok(sql, 'mapping the column did not bring the dimension up');
-    assert.ok(/'ai_caller'/.test(sql), 'the configured AI value is not in the classifier');
+    const sql = reload().callSourceCase('it.inventory_type');
+    assert.ok(sql, 'listing the AI values did not bring the classifier up');
+    assert.ok(/'ai_call'/.test(sql), 'the configured AI value is not in the classifier');
     assert.ok(/'Not called'/.test(sql) && /ELSE 'Manual'/.test(sql),
-      'an unrecognised call source must read Manual and an absent one Not called');
-    assert.ok(on.availableDimensions('inventory').callSource, 'callSource is not offered as a dimension');
+      'an unrecognised inventory_type must read Manual and an absent one Not called');
 
-    // Half-configured is the dangerous state: a mapped column with no AI values
-    // would render every call Manual and read like a finding.
+    // The dangerous state: with no AI values every call would read Manual and
+    // look like a finding, so the classifier must refuse to produce SQL at all.
     cfg.inventory.aiCallSources = [];
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
-    assert.strictEqual(reload().callSourceExpr(), null,
-      'a column with no AI values must stay unavailable, not report 100% manual');
+    assert.strictEqual(reload().callSourceCase('it.inventory_type'), null,
+      'no AI values must stay unavailable, not report 100% manual');
   } finally {
     if (prev === undefined) delete process.env.MA_SCHEMA_JSON;
     else process.env.MA_SCHEMA_JSON = prev;
@@ -289,9 +286,21 @@ check('mapping the column in config is the whole switch-on', () => {
   }
 });
 
-check('this deployment reports the gap rather than guessing at it', () => {
-  assert.strictEqual(S.callSourceExpr(), null,
-    'inventory.callSource is mapped now — drop this check and assert the real values');
+check('the inventory_type lookup cannot fan an inventory match into several', () => {
+  // TLMS is a different grain: one FO-name session can hold several rows per
+  // reference_id. Joined raw it would multiply inventory matches and inflate
+  // every count on the tab, so the join must reduce to one row per key first.
+  const join = S.inventoryTypeJoin('it');
+  assert.ok(/GROUP BY reference_id/.test(join), 'the lookup no longer collapses to one row per reference_id');
+  assert.ok(/min\(lower\(trim\(inventory_type\)\)\)/.test(join), 'the lookup no longer picks a single value');
+  assert.ok(/phase2poc_trip_location_mapping_static/.test(join));
+  assert.ok(/LEFT JOIN/.test(join), 'an inner join would drop matches TLMS never saw');
+});
+
+check('the unsynced fallback does not pretend to offer the split', () => {
+  // The classification needs the TLMS join; live SQL queries demand_supply on
+  // its own. Offering the dimension there would fail at query time instead.
+  assert.strictEqual(S.callSourceExpr(), null);
   assert.ok(!S.availableDimensions('inventory').callSource);
 });
 

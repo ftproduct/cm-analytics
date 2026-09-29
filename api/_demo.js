@@ -322,6 +322,7 @@ function build() {
         isPlacementAvailable,
         inventoryId: String(100000 + invSeq),
         callNotes: isCalled && r() < 0.35 ? 'Demo call note' : null,
+        inventoryType: isCalled ? (r() < 0.58 ? 'ai_call' : 'crm') : null,
         callSource: isCalled ? (r() < 0.58 ? 'AI called' : 'Manual') : 'Not called',
         laneType: r() < 0.28 ? 'Power lane' : 'Non power lane',
         demandSource: r() < 0.62 ? 'Bot' : 'Manual',

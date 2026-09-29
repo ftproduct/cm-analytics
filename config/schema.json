@@ -78,7 +78,6 @@
       "status": "status",
       "stage": "funnel_stage",
       "nonConversionReason": "non_conversion_reason",
-      "callSource": null,
       "matchedDemandId": "matched_demand_id",
       "capacityTons": null,
       "quantity": "quantity",
