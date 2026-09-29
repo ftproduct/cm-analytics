@@ -27,6 +27,28 @@ function col(entity, logical, alias) {
   return `${c || 'NULL'} AS ${alias || logical}`;
 }
 
+// Bot vs manual, projected into all three snapshots. The demand query reads the
+// column bare; the two joined queries reach it through the demand alias. Both
+// go through _schema's one CASE so a snapshot and a live-SQL answer can never
+// disagree about which demands a bot raised.
+// Manual vs AI-called, from the inventory `source` column on TLMS. The
+// inventory snapshot reads it through the pre-aggregated lookup (a resolved
+// boolean); the bids snapshot is driven by TLMS itself, so it tests the column
+// directly. TLMS `inventory_type` rides along as inventoryType -- a separate
+// cut, and useful for reading the real values off /api/filters. With no AI
+// values configured both collapse to NULL and drop out of the facets rather
+// than inventing a split.
+function callSourceSql(expr, { resolved = false } = {}) {
+  const sql = resolved ? S.callSourceFromFlag(expr) : S.callSourceCase(expr);
+  return sql || `cast(NULL AS string)`;
+}
+
+function demandSourceSql(alias) {
+  const physical = S.getSchema().demand.columns.source;
+  if (!physical) return `cast(NULL AS string)`;
+  return S.demandSourceCase(alias ? `${alias}.${S.quote(physical)}` : S.col('demand', 'source'));
+}
+
 function demandQuery(from, to, limit) {
   const created = S.reqCol('demand', 'createdAt');
   const fulfilled = S.col('demand', 'fulfilledAt');
@@ -78,6 +100,7 @@ function demandQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql()} AS demandSource,
   ${col('demand', 'originSuperCluster')},
   ${col('demand', 'destinationSuperCluster')}
 FROM ${S.fromRef('demand')}
@@ -185,11 +208,16 @@ function inventoryQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql('d')} AS demandSource,
+  it.inventory_type AS inventoryType,
+  ${callSourceSql('it.agent_created', { resolved: true })} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${ds} ds
 INNER JOIN ${demand} d
   ON d.id = ds.demand_id
+${S.inventoryLookupJoin('it')}
+  ON it.reference_id = ds.id
 WHERE upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY'
   AND d.origin_super_cluster_name IS NOT NULL
   AND d.created_at IS NOT NULL
@@ -295,6 +323,9 @@ function bidsQuery(from, to, limit) {
       THEN 'Power lane'
     ELSE 'Non power lane'
   END AS laneType,
+  ${demandSourceSql('d')} AS demandSource,
+  lower(trim(coalesce(mb.inventory_type, ''))) AS inventoryType,
+  ${callSourceSql(`mb.${S.quote(S.getSchema().inventory.columns.source || 'source')}`)} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${mb} mb

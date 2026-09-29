@@ -71,6 +71,17 @@ One row per demand / indent / load posted by a shipper.
 | `quantity` / `weightTons` | | Vehicle count and tonnage |
 | `expectedPrice` | | Indicative rate. Prices "value at risk" on unfilled demand. |
 | `bookedPrice` | | Final booked rate |
+| `source` | | How the demand was raised. Splits bot-created demand from demand a person typed into the CRM. |
+
+`source` is classified by `demand.botSources` — every value on that list reads
+**Bot**, everything else reads **Manual**, and a blank source is left out of the
+split rather than guessed at. Add a new integration's source string to the list
+rather than changing code:
+
+```jsonc
+"botSources": ["generic_api"]
+```
+
 
 \* `status` is required **unless** `fulfilledAt` is mapped. Fulfilment is
 `status IN (fulfilledStatuses)` when that list is set (preferred), otherwise
@@ -117,6 +128,48 @@ One row per truck / capacity posting by a carrier.
 | `nonConversionReason` | | Why it never converted |
 | `matchedDemandId` | | Demand it was matched to |
 | `askingPrice` | | Quoted rate |
+
+### AI-called vs manual inventory
+
+| Logical field | Required | What it must contain |
+|---|:---:|---|
+| `source` | | Whether the AI agent's calling created this inventory. Blank means it did not. |
+
+`source` lives on `phase2poc_trip_location_mapping_static`, not on the
+inventory fact — a different table at a different grain, whose only overlap is
+`reference_id → phase2poc_demand_supply.id` (see
+[`sql/reconcile_mb1042_vs_app.sql`](./sql/reconcile_mb1042_vs_app.sql)). The
+sync reduces it to one row per `reference_id` before joining, because one
+FO-name session can hold several rows and a raw join would multiply inventory
+matches.
+
+Two buckets, not three: the column already answers agent-or-not, so blank is
+**Manual** by definition and there is no "never called" state to carve out.
+Which values mean the agent is config, so a renamed agent does not need a
+deploy:
+
+```jsonc
+"columns": { "source": "source" },
+"aiCallSources": ["agent"]
+```
+
+Empty the list and the split stays unavailable and the gap is listed on the
+**Setup** tab, rather than a chart reporting every row as manual.
+
+One detail worth knowing: within a session, **any** row naming the agent makes
+that inventory agent-created, so the flag folds with `max()`. Folding the raw
+string with `min()` instead would let a single blank row hide the agent and
+undercount the AI side.
+
+TLMS `inventory_type` rides along in the snapshot as `inventoryType` — a
+separate cut (`fo_app`, `crm`, …), readable off `/api/filters`.
+
+Two limits. The split lives in the **snapshot**: the unsynced live-SQL fallback
+queries `phase2poc_demand_supply` on its own and does not carry it, so the panel
+and chip are hidden there. And the **FO App bids** tab is already filtered to
+`inventory_type = 'FO_APP'`, though its rows are still split by `source` like
+any other.
+
 
 \* Same rule as demand: `status` is required unless `convertedAt` is mapped.
 

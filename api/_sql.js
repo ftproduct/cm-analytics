@@ -108,6 +108,8 @@ const FILTER_TARGET = {
       ELSE 'Non power lane'
     END`;
   },
+  demandSource: e => (e === 'demand' ? S.demandSourceExpr() : null),
+  callSource: e => (e === 'inventory' ? S.callSourceExpr() : null),
   originSuperCluster: e => S.col(e, 'originSuperCluster'),
   destinationSuperCluster: e => S.col(e, 'destinationSuperCluster'),
   reason: e => reasonCol(e)
@@ -748,6 +750,8 @@ async function filterOptions(filters = {}) {
     ['shipper', 'demand', 'shipper', 300],
     ['vehicleType', 'demand', 'vehicleType', 100],
     ['materialType', 'demand', 'materialType', 100],
+    ['demandSource', 'demand', 'demandSource', 10],
+    ['callSource', 'inventory', 'callSource', 10],
     ['demandReason', 'demand', 'reason', 60],
     ['inventoryReason', 'inventory', 'reason', 60]
   ];
