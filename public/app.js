@@ -11,7 +11,7 @@
 
   // ------------------------------------------------------------------ State
 
-  const FILTER_KEYS = ['lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType', 'reason', 'laneType', 'originSuperCluster', 'destinationSuperCluster'];
+  const FILTER_KEYS = ['lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource', 'originSuperCluster', 'destinationSuperCluster'];
 
   // Always-visible filters sit in the primary row; everything else lives under More.
   const MORE_FILTER_KEYS = ['region', 'origin', 'destination', 'lane', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType'];
@@ -38,6 +38,7 @@
     psa: 'psa', lsp: 'lsp', shipper: 'shipper', vehicleType: 'vehicleType',
     materialType: 'materialType',
     laneType: 'laneType',
+    demandSource: 'demandSource',
     originSuperCluster: 'originSuperCluster',
     destinationSuperCluster: 'destinationSuperCluster'
   };
@@ -47,6 +48,7 @@
     origin: 'Origin', destination: 'Destination', region: 'Zone',
     psa: 'PSA', lsp: 'LSP', shipper: 'Shipper', vehicleType: 'Vehicle', materialType: 'Material',
     laneType: 'Power / non-power',
+    demandSource: 'Bot / manual',
     originSuperCluster: 'Origin supercluster',
     destinationSuperCluster: 'Dest supercluster'
   };
@@ -542,8 +544,9 @@
     $('#main').innerHTML = `
       <div class="tile-row" id="tiles"><div class="loading">Loading…</div></div>
       <div class="panel-grid">
-        ${panel('Zone overview', 'High-level demand by origin zone — North / South / East / West / Central. Mapped from liquid-lane city / origin supercluster (e.g. Bombay→West, Delhi NCR→North). Click a bar to filter.', { span: 6, body: 'zones', actions: csvButton('zones') })}
-        ${panel('Power lane vs non power lane', 'Demand volume and fill rate split by liquid/power lane flag. Use the Lane type filter to lock the rest of the dashboard to one side.', { span: 6, body: 'laneTypeSplit', actions: csvButton('laneTypeSplit') })}
+        ${panel('Zone overview', 'High-level demand by origin zone — North / South / East / West / Central. Mapped from liquid-lane city / origin supercluster (e.g. Bombay→West, Delhi NCR→North). Click a bar to filter.', { span: 4, body: 'zones', actions: csvButton('zones') })}
+        ${panel('Power lane vs non power lane', 'Demand volume and fill rate split by liquid/power lane flag. Use the Lane type filter to lock the rest of the dashboard to one side.', { span: 4, body: 'laneTypeSplit', actions: csvButton('laneTypeSplit') })}
+        ${panel('Bot vs manual demand', 'How the demand was raised: Bot = pushed through the integration API, Manual = created by a person in the CRM. Fill rate sits beside each so the two channels can be compared, not just counted. Click a bar to filter the dashboard to one channel.', { span: 4, body: 'sourceSplit', actions: csvButton('sourceSplit') })}
         ${panel('Demand vs fulfilment over time', 'Volume with the unfulfilled portion stacked on top, so the gap is visible rather than inferred.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Unfulfilled', 'var(--series-2)']]) })}
         ${panel('Top supercluster lanes', 'Two rankings side by side. Each bar splits fulfilled (green) and unfulfilled (orange) — the green share is the fill rate. Label = demands · fill %. Tap a lane to filter.', {
           span: 12,
@@ -575,6 +578,7 @@
       { id: 'zones', entity: 'demand', kind: 'group', groupBy: 'region', limit: 10 },
       { id: 'lanes', entity: 'demand', kind: 'group', groupBy: 'superClusterLane', limit: 40 },
       { id: 'laneTypeSplit', entity: 'demand', kind: 'group', groupBy: 'laneType', limit: 5 },
+      { id: 'sourceSplit', entity: 'demand', kind: 'group', groupBy: 'demandSource', limit: 5 },
       { id: 'movers', entity: 'demand', kind: 'movers', groupBy: 'superClusterLane', limit: 8 },
       { id: 'imbalance', kind: 'imbalance', limit: 20 }
     ]);
@@ -626,6 +630,19 @@
         { key: 'success', label: 'Fulfilled', align: 'right', format: F.int },
         { key: 'rate', label: 'Fill rate', align: 'right', format: F.pct }
       ], 'powerlane-split.csv');
+    });
+
+    fill('sourceSplit', R.sourceSplit, (host, p) => {
+      Charts.rankedBars(host, p.rows, {
+        meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
+        onSelect: r => { State.filters.demandSource = [r.key]; onFiltersChanged(); }
+      });
+      wireCsv('sourceSplit', p.rows || [], [
+        { key: 'key', label: 'Raised by' },
+        { key: 'total', label: 'Demands', align: 'right', format: F.int },
+        { key: 'success', label: 'Fulfilled', align: 'right', format: F.int },
+        { key: 'rate', label: 'Fill rate', align: 'right', format: F.pct }
+      ], 'bot-vs-manual-demand.csv');
     });
 
     fill('trend', R.trend, (host, p) => Charts.stackedBars(host, p.rows, {
@@ -1485,7 +1502,7 @@
 
     const dims = State.meta?.dimensions?.[exploreEntity] || {};
     const select = $('#groupDim');
-    const preferred = ['laneType', 'region', 'originSuperCluster', 'destinationSuperCluster', 'superClusterLane', 'lane', 'psa', 'lsp', 'vehicleType', 'origin', 'destination', 'shipper', 'materialType', 'reason', 'status', 'stage'];
+    const preferred = ['demandSource', 'laneType', 'region', 'originSuperCluster', 'destinationSuperCluster', 'superClusterLane', 'lane', 'psa', 'lsp', 'vehicleType', 'origin', 'destination', 'shipper', 'materialType', 'reason', 'status', 'stage'];
     const keys = preferred.filter(k => dims[k]);
     select.innerHTML = keys.map(k => `<option value="${k}">${dims[k].label}</option>`).join('') ||
       `<option value="superClusterLane">Supercluster lane</option>`;

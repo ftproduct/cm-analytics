@@ -25,6 +25,7 @@
       "weightTons": "min_order_tonnage",
       "expectedPrice": "rate",
       "bookedPrice": "final_rate_quoted_csm_to_lsp",
+      "source": "source",
       "laneType": "is_liquid_lane",
       "originSuperCluster": "origin_super_cluster_name",
       "destinationSuperCluster": "destination_super_cluster_name"
@@ -50,6 +51,9 @@
       "OPEN",
       "LSP_RATE_ENQUIRY",
       "VEHICLE_AVAILABLE_LSP_TO_CONFIRM"
+    ],
+    "botSources": [
+      "generic_api"
     ]
   },
   "inventory": {

@@ -15,7 +15,7 @@
 
   const FILTER_KEYS = [
     'lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper',
-    'vehicleType', 'materialType', 'reason', 'laneType',
+    'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource',
     'originSuperCluster', 'destinationSuperCluster', 'matchType'
   ];
 

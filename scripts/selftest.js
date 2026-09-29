@@ -193,6 +193,44 @@ check('movers only report periods with comparable volume on both sides', () => {
   }
 });
 
+// Bot vs manual. The classification itself is one CASE in _schema.js, but the
+// dimension only reaches a user if six files agree it exists: the SQL filter
+// target, the spec allowlist, the engine's field map and filter, the snapshot
+// projection, and the two front-end key lists. Miss one and the filter is
+// silently dropped -- the panel still renders, on the wrong rows.
+console.log('\ndemand source (bot vs manual)');
+const sourceSplit = engine.runSpec({ entity: 'demand', kind: 'group', groupBy: 'demandSource', limit: 10, filters });
+
+check('every demand is either bot-raised or manual', () => {
+  assert.deepStrictEqual(sourceSplit.rows.map(r => r.key).sort(), ['Bot', 'Manual']);
+  const sum = sourceSplit.rows.reduce((s, r) => s + r.total, 0);
+  assert.strictEqual(sum, summary.current.total, 'the split drops or double-counts demands');
+});
+
+check('filtering to one channel returns exactly that channel', () => {
+  const bot = sourceSplit.rows.find(r => r.key === 'Bot');
+  const only = engine.runSpec({
+    entity: 'demand', kind: 'summary', filters: { ...filters, demandSource: ['Bot'] }
+  });
+  assert.strictEqual(only.current.total, bot.total);
+});
+
+check('generic_api is the bot source and an unknown source falls to Manual', () => {
+  const sql = S.demandSourceExpr();
+  assert.ok(sql, 'demand.source is not mapped in config/schema.json');
+  assert.ok(/'generic_api'/.test(sql), 'generic_api is no longer classified as bot-raised');
+  assert.ok(/ELSE 'Manual'/.test(sql), 'a source nobody has seen yet must read Manual, never vanish');
+});
+
+check('every list that has to know about demandSource does', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  for (const f of ['api/_sql.js', 'api/_specs.js', 'api/_engine.js', 'api/_sync.js',
+                   'public/app.js', 'public/chat.js', 'public/index.html']) {
+    assert.ok(read(f).includes('demandSource'),
+      `${f} does not mention demandSource -- the filter will be dropped without an error`);
+  }
+});
+
 // The allowlist in api/_specs.js is a third copy of the metric list, beside the
 // engines that implement them and the frontend that asks for them. A kind that
 // falls out of step is rejected at the gate and the panel reads "Unsupported
