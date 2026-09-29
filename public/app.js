@@ -716,8 +716,9 @@
     $('#main').innerHTML = `
       <div class="tile-row" id="tiles"><div class="loading">Loading…</div></div>
       <div class="panel-grid">
-        ${panel('Zone overview', 'Demand by origin zone (North / South / East / West / Central), mapped from liquid-lane city / supercluster. Click to filter.', { span: 4, body: 'zones', actions: csvButton('zones') })}
-        ${panel('Demand over time', 'Unfulfilled volume stacked above fulfilled.', { span: 8, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Unfulfilled', 'var(--series-2)']]) })}
+        ${panel('Zone overview', 'Demand by origin zone (North / South / East / West / Central), mapped from liquid-lane city / supercluster. Click to filter.', { span: 6, body: 'zones', actions: csvButton('zones') })}
+        ${panel('Bot vs manual demand', 'How the demand was raised: Bot = pushed through the integration API, Manual = created by a person in the CRM. Fill rate sits beside each so the two channels can be compared, not just counted. Click a bar to filter the dashboard to one channel.', { span: 6, body: 'sourceSplit', actions: csvButton('sourceSplit') })}
+        ${panel('Demand over time', 'Unfulfilled volume stacked above fulfilled.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Unfulfilled', 'var(--series-2)']]) })}
         ${panel('Created by time of day', 'Demands split by creation hour in IST: 9am–1pm, 1pm–7pm, and everything else as after office hours. Fill rate sits beside each slot.', { span: 6, body: 'officeHours', actions: csvButton('officeHours') })}
         ${panel('Unfulfilment reasons', 'Cancel code when present, else demand status. Frequency-ranked with cumulative share and value at risk.', { span: 6, body: 'reasons', actions: csvButton('reasons') })}
         ${panel('Supercluster-wise demand', 'Click a bar to filter the whole dashboard to that origin→destination supercluster lane.', { span: 6, body: 'lanes', actions: csvButton('lanes') })}
@@ -734,6 +735,7 @@
       { id: 'officeHours', entity: 'demand', kind: 'officeHours' },
       { id: 'reasons', entity: 'demand', kind: 'reasons', limit: 12 },
       { id: 'zones', entity: 'demand', kind: 'group', groupBy: 'region', limit: 10 },
+      { id: 'sourceSplit', entity: 'demand', kind: 'group', groupBy: 'demandSource', limit: 5 },
       { id: 'lanes', entity: 'demand', kind: 'group', groupBy: 'superClusterLane', limit: 15 },
       { id: 'lsps', entity: 'demand', kind: 'group', groupBy: 'lsp', limit: 15 },
       { id: 'heat', entity: 'demand', kind: 'heatmap', grain: State.grain === 'day' ? 'week' : State.grain, limit: 12 },
@@ -795,6 +797,12 @@
       onSelect: r => { State.filters.region = [r.key]; onFiltersChanged(); }
     }));
     wireCsv('zones', R.zones?.rows || [], groupCols('Zone'), 'demand-by-zone.csv');
+
+    fill('sourceSplit', R.sourceSplit, (host, p) => Charts.rankedBars(host, p.rows, {
+      meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
+      onSelect: r => { State.filters.demandSource = [r.key]; onFiltersChanged(); }
+    }));
+    wireCsv('sourceSplit', R.sourceSplit?.rows || [], groupCols('Raised by'), 'bot-vs-manual-demand.csv');
 
     fill('lanes', R.lanes, (host, p) => Charts.rankedBars(host, p.rows, {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
