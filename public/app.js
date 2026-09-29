@@ -1888,6 +1888,7 @@
     map: 'Demand and fill rate by geography — the regional shape of the gap, before you drill into lanes.',
     demand: "Every demand raised, cut by lane, LSP and PSA — what filled, what didn't, and why.",
     inventory: 'The supply side — how much inventory was offered, how much converted, and where it stalls.',
+    leaderboard: 'Superclusters ranked at every stage of the funnel — best and worst on each rate, so the weakest stage is the one to fix first.',
     matching: 'The two sides against each other — where demand outruns inventory, and where inventory sits with no demand.',
     people: 'Who moves the needle — PSA response and conversion, LSP fill rate and reliability.'
   };
