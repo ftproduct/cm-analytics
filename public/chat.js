@@ -85,6 +85,7 @@
     // Row-level answers live on the explorer; the Demand tab has no row panel.
     if (spec.kind === 'rows') return 'explore';
     if (['leakage', 'imbalance', 'invMatch', 'invMatchGroup', 'invMatchDemandRows'].includes(spec.kind)) return 'matching';
+    if (spec.kind === 'supercluster') return 'leaderboard';
     if (['psa', 'lsp'].includes(spec.groupBy)) return 'people';
     if (spec.entity === 'inventory') return 'inventory';
     // The explorer can group by any mapped dimension, so it is the honest

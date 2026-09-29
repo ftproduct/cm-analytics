@@ -1098,6 +1098,120 @@
     wireCsv('rows', R.rows?.rows || [], rowCols, 'fo-app-bids.csv');
   }
 
+  // ---- Leaderboard ------------------------------------------------------
+
+  async function renderLeaderboard() {
+    $('#main').innerHTML = `
+      <div class="panel-grid">
+        ${panel('Diagnosis', 'Where inventory and bids leak most, read off the table below.', { span: 12, body: 'story' })}
+        ${panel('Bot demands actioned by a PSA', 'Share of bot-raised demands where a PSA replaced the bot placeholder, by origin supercluster.', { span: 6, body: 'bot', actions: csvButton('bot') })}
+        ${panel('Matched demands called', 'Share of demands matched to inventory on which at least one call was made.', { span: 6, body: 'matched', actions: csvButton('matched') })}
+        ${panel('FO App bids called', 'Share of FO App bids that were called.', { span: 6, body: 'bids', actions: csvButton('bids') })}
+        ${panel('Bid calling time', 'Of bids called in each 3-hour IST band, the share that were fulfilled. Band uses the time the call was logged.', { span: 6, body: 'bands' })}
+        ${panel('Best and worst calling time by supercluster', 'Band with the highest and lowest bid fulfilment per supercluster (bands with fewer than 5 called bids ignored).', { span: 12, body: 'callTime', actions: csvButton('callTime') })}
+        ${panel('Supercluster scorecard', 'Every stage rate side by side; the weakest stage is where to intervene first.', { span: 12, body: 'table', actions: csvButton('table') })}
+      </div>`;
+
+    const res = await fetchMetrics([{ id: 'board', kind: 'supercluster' }]);
+    if (!res) return;
+    const B = res.results.board;
+    const hostErr = B?.error || B?.unavailable;
+    if (!B || hostErr) {
+      ['story', 'bot', 'matched', 'bids', 'bands', 'callTime', 'table'].forEach(n =>
+        fill(n, B, () => {}));
+      return;
+    }
+
+    const floor = `Superclusters with fewer than ${B.minVolume} records are left out`;
+    const board = (name, src, noun, file) => {
+      fill(name, src, (host, p) => {
+        const rows = p.rows || [];
+        if (!rows.length) return Charts.emptyState(host, `No supercluster has ${B.minVolume}+ ${noun} in this window.`);
+        const n = Math.min(5, Math.floor(rows.length / 2) || 1);
+        const best = rows.slice(0, n);
+        const worst = rows.length > n ? rows.slice(-n).reverse() : [];
+        const meta = r => `${F.pct(r.rate)} · ${F.int(r.hit)}/${F.int(r.total)}`;
+        const tip = r => `<strong>${escapeHtml(r.key)}</strong><br>${F.int(r.hit)} of ${F.int(r.total)} (${F.pct(r.rate)})`;
+        host.innerHTML = `<h4 class="board-sub">Best ${best.length}</h4><div data-sub="best"></div>` +
+          (worst.length ? `<h4 class="board-sub">Worst ${worst.length}</h4><div data-sub="worst"></div>` : '') +
+          `<p class="panel-note">${floor} (${F.int(p.belowFloor)} below the floor).</p>`;
+        Charts.rankedBars(host.querySelector('[data-sub="best"]'), best,
+          { value: r => r.rate ?? 0, max: 100, meta, tip, colorRole: 'var(--series-3)',
+            onSelect: r => { State.filters.originSuperCluster = [r.key]; onFiltersChanged(); } });
+        if (worst.length) {
+          Charts.rankedBars(host.querySelector('[data-sub="worst"]'), worst,
+            { value: r => r.rate ?? 0, max: 100, meta, tip, colorRole: 'var(--series-2)',
+              onSelect: r => { State.filters.originSuperCluster = [r.key]; onFiltersChanged(); } });
+        }
+      });
+      wireCsv(name, src?.rows || [], [
+        { key: 'key', label: 'Supercluster' },
+        { key: 'total', label: 'Total', align: 'right', format: F.int },
+        { key: 'hit', label: noun.split(' ')[0] === 'bot' ? 'Actioned' : 'Called', align: 'right', format: F.int },
+        { key: 'rate', label: 'Rate', align: 'right', format: F.pct }
+      ], file);
+    };
+    board('bot', B.botActioned, 'bot demands', 'supercluster-bot-actioned.csv');
+    board('matched', B.matchedCalled, 'matched demands', 'supercluster-matched-called.csv');
+    board('bids', B.bidsCalled, 'FO App bids', 'supercluster-bids-called.csv');
+
+    fill('bands', B, (host, p) => {
+      const rows = (p.callBands || []).filter(b => b.called > 0);
+      Charts.rankedBars(host, rows, {
+        label: r => r.band, value: r => r.rate ?? 0, max: 100,
+        colorRole: 'var(--series-3)',
+        meta: r => `${F.pct(r.rate)} of ${F.int(r.called)}`,
+        tip: r => `<strong>Called ${r.band} IST</strong><br>${F.int(r.converted)} of ${F.int(r.called)} fulfilled (${F.pct(r.rate)})`,
+        emptyMessage: 'No called bids with a call time in this window. Re-sync to pull call times.'
+      });
+    });
+
+    const bandCell = b => b ? `${escapeHtml(b.band)} · ${F.pct(b.rate)} of ${F.int(b.called)}` : '—';
+    const callCols = [
+      { key: 'key', label: 'Supercluster', format: escapeHtml },
+      { key: 'called', label: 'Called bids', align: 'right', format: F.int },
+      { key: 'best', label: 'Best time', format: bandCell },
+      { key: 'worst', label: 'Worst time', format: bandCell }
+    ];
+    fill('callTime', { ...B, rows: B.callTime }, (host, p) => Charts.table(host, p.rows, callCols, {
+      emptyMessage: 'Not enough called bids per time band yet. Re-sync to pull call times.'
+    }));
+    wireCsv('callTime', (B.callTime || []).map(r => ({
+      key: r.key, called: r.called,
+      best: r.best ? `${r.best.band} (${r.best.rate}%)` : '', worst: r.worst ? `${r.worst.band} (${r.worst.rate}%)` : ''
+    })), callCols.map(c => ({ ...c, format: undefined })), 'supercluster-call-time.csv');
+
+    const tableCols = [
+      { key: 'key', label: 'Supercluster', format: escapeHtml },
+      { key: 'botActionedRate', label: 'Bot actioned', align: 'right', format: v => v == null ? '—' : F.pct(v) },
+      { key: 'matchedCalledRate', label: 'Matched called', align: 'right', format: v => v == null ? '—' : F.pct(v) },
+      { key: 'matchedPlacedRate', label: 'Called → placed', align: 'right', format: v => v == null ? '—' : F.pct(v) },
+      { key: 'bidsCalledRate', label: 'Bids called', align: 'right', format: v => v == null ? '—' : F.pct(v) },
+      { key: 'bidsFulfilledRate', label: 'Called → fulfilled', align: 'right', format: v => v == null ? '—' : F.pct(v) },
+      { key: 'weakestStage', label: 'Weakest stage', format: (v, r) => v ? `${escapeHtml(v)} (${F.pct(r.weakestRate)})` : '—' }
+    ];
+    fill('table', { ...B, rows: B.table }, (host, p) => Charts.table(host, p.rows, tableCols));
+    wireCsv('table', B.table || [], tableCols.map(c => ({ ...c, format: undefined })), 'supercluster-scorecard.csv');
+
+    fill('story', B, (host, p) => {
+      const withWeak = (p.table || []).filter(r => r.weakestStage);
+      if (!withWeak.length) return Charts.emptyState(host, 'Not enough volume per supercluster to diagnose.');
+      const counts = {};
+      withWeak.forEach(r => { counts[r.weakestStage] = (counts[r.weakestStage] || 0) + 1; });
+      const [stage, n] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      const worst = [...withWeak].sort((a, b) => a.weakestRate - b.weakestRate)[0];
+      const lines = [
+        `<strong>${escapeHtml(stage)}</strong> is the weakest stage in ${F.int(n)} of ${F.int(withWeak.length)} superclusters.`,
+        `Lowest single stage: <strong>${escapeHtml(worst.key)}</strong> — ${escapeHtml(worst.weakestStage)} at ${F.pct(worst.weakestRate)}.`
+      ];
+      const spread = board => board.rows.length > 1
+        ? board.rows[0].rate - board.rows[board.rows.length - 1].rate : null;
+      const sp = spread(p.botActioned);
+      if (sp != null) lines.push(`Bot-demand actioning spans ${F.pct(sp)} points between best and worst supercluster — the gap is process, not supply.`);
+      host.innerHTML = `<ul class="insight-list">${lines.map(l => `<li>${l}</li>`).join('')}</ul>`;
+    });
+  }
+
   // ---- Matching ---------------------------------------------------------
 
   async function renderMatching() {
@@ -1757,6 +1871,7 @@
     demand: renderDemand,
     inventory: renderInventory,
     bids: renderBids,
+    leaderboard: renderLeaderboard,
     matching: renderMatching,
     map: renderMap,
     people: renderPeople,

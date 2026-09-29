@@ -211,6 +211,15 @@ chart and need completely different responses:
 - **Coverage above 1.0× with poor fill** — the trucks were there and we did not
   match them. Process, pricing or response time.
 
+### Supercluster leaderboard
+Best and worst five origin superclusters on four levers: bot demands actioned by
+a PSA (a real PSA name replacing `Demand_Bot_PSA`), matched demands called, FO App
+bids called, and bid fulfilment by 3-hour call-time band. Below it, a scorecard
+of every stage rate per supercluster with the weakest stage named. Follows the
+date filter; superclusters under 12 records are left out of a ranking. Needs a
+synced snapshot. Call time is the demand_supply row's last update on a called
+bid (there is no dedicated call timestamp), so re-sync after deploying.
+
 ### PSA & LSP
 Scorecards for both sides, who is moving against the previous period, carrier
 reliability, and carrier concentration with HHI — because a fill rate that
