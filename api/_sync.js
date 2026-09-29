@@ -31,6 +31,16 @@ function col(entity, logical, alias) {
 // column bare; the two joined queries reach it through the demand alias. Both
 // go through _schema's one CASE so a snapshot and a live-SQL answer can never
 // disagree about which demands a bot raised.
+// Manual vs AI-called, projected alongside demandSource. The column lives on
+// phase2poc_demand_supply, so both joined snapshots reach it through `ds`.
+// Unmapped (or no AI values configured) collapses to NULL, which drops the
+// dimension out of the facets rather than inventing a split.
+function callSourceSql(alias) {
+  const physical = S.getSchema().inventory.columns.callSource;
+  if (!physical) return `cast(NULL AS string)`;
+  return S.callSourceCase(`${alias}.${S.quote(physical)}`) || `cast(NULL AS string)`;
+}
+
 function demandSourceSql(alias) {
   const physical = S.getSchema().demand.columns.source;
   if (!physical) return `cast(NULL AS string)`;
@@ -197,6 +207,7 @@ function inventoryQuery(from, to, limit) {
     ELSE 'Non power lane'
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
+  ${callSourceSql('ds')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${ds} ds
@@ -308,6 +319,7 @@ function bidsQuery(from, to, limit) {
     ELSE 'Non power lane'
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
+  ${callSourceSql('ds')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${mb} mb

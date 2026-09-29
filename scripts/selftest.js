@@ -231,6 +231,90 @@ check('every list that has to know about demandSource does', () => {
   }
 });
 
+// Manual vs AI-called inventory. The column is optional, so the interesting
+// cases are the two ends: the classifier itself, and what happens while nobody
+// has mapped it.
+console.log('\ninventory call source (AI vs manual)');
+const sumOf = rows => rows.reduce((s, r) => s + r.total, 0);
+const callSplit = engine.runSpec({ entity: 'inventory', kind: 'group', groupBy: 'callSource', limit: 0, filters });
+
+check('an uncalled match is its own bucket, not counted as human effort', () => {
+  assert.deepStrictEqual(callSplit.rows.map(r => r.key).sort(), ['AI called', 'Manual', 'Not called']);
+});
+
+check('the three buckets partition every inventory match', () => {
+  const byLsp = engine.runSpec({ entity: 'inventory', kind: 'group', groupBy: 'lsp', limit: 0, filters });
+  assert.strictEqual(sumOf(callSplit.rows), sumOf(byLsp.rows));
+});
+
+check('filtering to AI-called returns exactly those matches', () => {
+  const ai = callSplit.rows.find(r => r.key === 'AI called');
+  const only = engine.runSpec({
+    entity: 'inventory', kind: 'group', groupBy: 'lsp', limit: 0,
+    filters: { ...filters, callSource: ['AI called'] }
+  });
+  assert.strictEqual(sumOf(only.rows), ai.total);
+});
+
+check('mapping the column in config is the whole switch-on', () => {
+  const file = path.join(__dirname, '..', 'config', 'schema.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const prev = process.env.MA_SCHEMA_JSON;
+  const reload = () => {
+    delete require.cache[require.resolve('../api/_schema.js')];
+    return require('../api/_schema.js');
+  };
+  try {
+    cfg.inventory.columns.callSource = 'call_source';
+    cfg.inventory.aiCallSources = ['ai_caller'];
+    process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
+    const on = reload();
+    const sql = on.callSourceExpr();
+    assert.ok(sql, 'mapping the column did not bring the dimension up');
+    assert.ok(/'ai_caller'/.test(sql), 'the configured AI value is not in the classifier');
+    assert.ok(/'Not called'/.test(sql) && /ELSE 'Manual'/.test(sql),
+      'an unrecognised call source must read Manual and an absent one Not called');
+    assert.ok(on.availableDimensions('inventory').callSource, 'callSource is not offered as a dimension');
+
+    // Half-configured is the dangerous state: a mapped column with no AI values
+    // would render every call Manual and read like a finding.
+    cfg.inventory.aiCallSources = [];
+    process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
+    assert.strictEqual(reload().callSourceExpr(), null,
+      'a column with no AI values must stay unavailable, not report 100% manual');
+  } finally {
+    if (prev === undefined) delete process.env.MA_SCHEMA_JSON;
+    else process.env.MA_SCHEMA_JSON = prev;
+    reload();
+  }
+});
+
+check('this deployment reports the gap rather than guessing at it', () => {
+  assert.strictEqual(S.callSourceExpr(), null,
+    'inventory.callSource is mapped now — drop this check and assert the real values');
+  assert.ok(!S.availableDimensions('inventory').callSource);
+});
+
+check('the call-source filter leaves the demand side alone', () => {
+  // A demand row has no call to attribute, and _sql.js resolves this filter to
+  // nothing for demand. If the in-memory engine applied it anyway, every demand
+  // panel would read zero the moment the chip was used.
+  const before = engine.runSpec({ entity: 'demand', kind: 'summary', filters });
+  const after = engine.runSpec({
+    entity: 'demand', kind: 'summary', filters: { ...filters, callSource: ['AI called'] }
+  });
+  assert.strictEqual(after.current.total, before.current.total);
+});
+
+check('every list that has to know about callSource does', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  for (const f of ['api/_sql.js', 'api/_specs.js', 'api/_engine.js', 'api/_sync.js',
+                   'public/app.js', 'public/chat.js', 'public/index.html']) {
+    assert.ok(read(f).includes('callSource'),
+      `${f} does not mention callSource -- the filter will be dropped without an error`);
+  }
+});
+
 // The allowlist in api/_specs.js is a third copy of the metric list, beside the
 // engines that implement them and the frontend that asks for them. A kind that
 // falls out of step is rejected at the gate and the panel reads "Unsupported

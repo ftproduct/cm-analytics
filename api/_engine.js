@@ -34,6 +34,7 @@ const DIM_FIELD = {
   branch: 'branch', status: 'status', stage: 'stage',
   laneType: 'laneType',
   demandSource: 'demandSource',
+  callSource: 'callSource',
   originSuperCluster: 'originSuperCluster',
   destinationSuperCluster: 'destinationSuperCluster',
   matchType: 'matchType'
@@ -148,6 +149,11 @@ function applyFilters(rows, entity, f = {}) {
     if (!inList(f.materialType, r.materialType)) return false;
     if (!inList(f.laneType, r.laneType)) return false;
     if (!inList(f.demandSource, r.demandSource)) return false;
+    // Call source belongs to the inventory side only -- a demand row has no
+    // call to attribute. _sql.js already resolves this filter to nothing for
+    // demand, so scoping it here keeps cached and live answers identical
+    // instead of emptying every demand panel the moment the chip is used.
+    if (entity !== 'demand' && !inList(f.callSource, r.callSource)) return false;
     if (!inList(f.originSuperCluster, r.originSuperCluster)) return false;
     if (!inList(f.destinationSuperCluster, r.destinationSuperCluster)) return false;
     if (!inList(f.matchType, r.matchType)) return false;
@@ -751,6 +757,7 @@ function filterOptions(filters = {}, dataset = null) {
       merge(distinct(d, 'demandSource'), distinct(i, 'demandSource')),
       distinct(b, 'demandSource')
     ),
+    callSource: merge(distinct(i, 'callSource'), distinct(b, 'callSource')),
     originSuperCluster: merge(
       merge(distinct(d, 'originSuperCluster'), distinct(i, 'originSuperCluster')),
       distinct(b, 'originSuperCluster')

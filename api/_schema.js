@@ -244,6 +244,37 @@ function demandSourceExpr() {
   return c ? demandSourceCase(c) : null;
 }
 
+// Manual vs AI-called inventory. `callSource` records what placed the call to
+// the carrier; the values that mean the AI caller live in
+// inventory.aiCallSources. A match with no call source was never called at all,
+// so it gets its own bucket rather than being counted as human effort -- an
+// "AI vs manual" chart that quietly folds untouched inventory into Manual
+// overstates the work people did.
+//
+// Both halves are required. A mapped column with an empty aiCallSources list
+// would render every call Manual and look like a finding, so the dimension
+// stays unavailable until both are set and the gap shows on the Setup tab.
+function aiCallSourceList() {
+  const configured = getSchema().inventory.aiCallSources;
+  if (!Array.isArray(configured) || !configured.length) return null;
+  return configured.map(v => `'${String(v).trim().toLowerCase().replace(/'/g, "''")}'`);
+}
+
+function callSourceCase(expr) {
+  const list = aiCallSourceList();
+  if (!list) return null;
+  return `CASE
+    WHEN ${expr} IS NULL OR trim(cast(${expr} AS string)) = '' THEN 'Not called'
+    WHEN lower(trim(cast(${expr} AS string))) IN (${list.join(', ')}) THEN 'AI called'
+    ELSE 'Manual'
+  END`;
+}
+
+function callSourceExpr() {
+  const c = col('inventory', 'callSource');
+  return c ? callSourceCase(c) : null;
+}
+
 function statusListSql(values) {
   return (values || []).map(v => `'${String(v).replace(/'/g, "''")}'`);
 }
@@ -327,6 +358,7 @@ const DIMENSIONS = {
     branch:      { label: 'Branch',       expr: () => col('inventory', 'branch') },
     status:      { label: 'Status',       expr: () => col('inventory', 'status') },
     stage:       { label: 'Funnel stage', expr: () => col('inventory', 'stage') },
+    callSource:  { label: 'Called by',    expr: () => callSourceExpr() },
     reason:      { label: 'Non-conversion reason', expr: () => col('inventory', 'nonConversionReason') }
   }
 };
@@ -354,6 +386,7 @@ module.exports = {
   getSchema, tableRef, fromRef, col, reqCol, has, quote,
   laneExpr, superClusterLaneExpr, unfulfilmentReasonExpr,
   demandSourceExpr, demandSourceCase,
+  callSourceExpr, callSourceCase,
   isFulfilledExpr, isConvertedExpr, excludeStatusesExpr,
   inventoryJoinedSubquery,
   DIMENSIONS, availableDimensions, dimensionExpr

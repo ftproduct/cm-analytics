@@ -128,6 +128,20 @@ One row per truck / capacity posting by a carrier.
 | `nonConversionReason` | | Why it never converted |
 | `matchedDemandId` | | Demand it was matched to |
 | `askingPrice` | | Quoted rate |
+| `callSource` | | What placed the call to the carrier. Splits AI-called inventory from inventory a person worked. |
+
+`callSource` needs both halves: the column, and `aiCallSources` listing the
+values that mean the AI caller. A match with no call source reads **Not
+called** — its own bucket, so untouched inventory is never counted as human
+effort. Everything else reads **Manual**. Map only one half and the dimension
+stays unavailable and the gap is listed on the **Setup** tab, rather than a
+chart reporting every call as manual:
+
+```jsonc
+"columns": { "callSource": "call_source" },
+"aiCallSources": ["ai_caller"]
+```
+
 
 \* Same rule as demand: `status` is required unless `convertedAt` is mapped.
 

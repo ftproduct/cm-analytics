@@ -74,7 +74,8 @@ module.exports = async (req, res) => {
       ['inventory', 'nonConversionReason', 'Non-conversion reasons chart'],
       ['inventory', 'firstActionAt', 'PSA response ageing'],
       ['inventory', 'stage', 'Full conversion funnel'],
-      ['inventory', 'convertedAt', 'Time-to-convert metrics']
+      ['inventory', 'convertedAt', 'Time-to-convert metrics'],
+      ['inventory', 'callSource', 'AI-called vs manual inventory split']
     ];
     for (const [entity, col, feature] of optional) {
       if (!S.has(entity, col)) {
