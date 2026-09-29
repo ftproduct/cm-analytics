@@ -512,6 +512,168 @@ function funnel(rows, stages = FUNNEL_STAGES) {
 
 // How long inventory sat before a PSA first touched it, and what that did to
 // conversion. This is the "which PSA acted on it, and did it matter" view.
+// ---------------------------------------------------------------------------
+// Supercluster leaderboard
+//
+// Ranks origin superclusters on the four levers that decide whether inventory
+// and bids turn into placements, and cuts bid conversion by time of day.
+//
+//   botActioned  -- bot-raised demands a PSA has acted on. The bot stamps its own
+//                   placeholder PSA (Demand_Bot_PSA) on every demand, so "actioned"
+//                   means a real PSA name replaced it.
+//   matchedCalled-- unique demands that inventory matched, and the share on which
+//                   at least one call was made.
+//   bidsCalled   -- FO App bids that were called.
+//   callTime     -- 3-hour IST bands: of the bids called in the band, how many
+//                   went on to be fulfilled.
+//
+// A supercluster under MIN_VOLUME in a category is left out of that category's
+// ranking (12 mirrors the movers rule) so five loads at 100% never top a board.
+// Call time is the demand_supply row's last update on a called bid -- there is
+// no dedicated call timestamp -- so read the bands as when the call was logged.
+// ---------------------------------------------------------------------------
+const BOT_PSA = 'Demand_Bot_PSA';
+const BOARD_MIN_VOLUME = 12;
+const BOARD_MIN_BAND = 5;
+const CALL_BAND_HOURS = 3;
+
+function callBandLabel(i) {
+  const h = n => String(n).padStart(2, '0') + ':00';
+  return `${h(i * CALL_BAND_HOURS)}–${h((i + 1) * CALL_BAND_HOURS)}`;
+}
+
+function boardKey(r) {
+  const k = r.originSuperCluster;
+  return k == null || String(k).trim() === '' ? null : String(k);
+}
+
+function rankBoard(map, hitField) {
+  const all = [...map.entries()].map(([key, g]) => ({
+    key, total: g.total, hit: g[hitField], rate: pct(g[hitField], g.total)
+  }));
+  const ranked = all.filter(r => r.total >= BOARD_MIN_VOLUME)
+    .sort((a, b) => b.rate - a.rate || b.total - a.total);
+  return { rows: ranked, belowFloor: all.length - ranked.length };
+}
+
+function bump(map, key) {
+  if (!map.has(key)) map.set(key, { total: 0, actioned: 0, called: 0, placed: 0, converted: 0 });
+  return map.get(key);
+}
+
+function supercluster(demandRows, invRows, bidRows) {
+  const bot = new Map();
+  for (const r of demandRows) {
+    const k = boardKey(r);
+    if (!k || r.demandSource !== 'Bot') continue;
+    const g = bump(bot, k);
+    g.total++;
+    const psa = r.psa == null ? '' : String(r.psa).trim();
+    if (psa !== '' && psa !== BOT_PSA) g.actioned++;
+  }
+
+  // Unique demands: several inventory rows can match one demand.
+  const seen = new Map();
+  for (const r of invRows) {
+    const k = boardKey(r);
+    const dk = demandKey(r);
+    if (!k || dk == null) continue;
+    const id = k + '\u0000' + dk;
+    const cur = seen.get(id) || { k, called: false, placed: false };
+    if (r.isCalled) cur.called = true;
+    if (r.isConverted) cur.placed = true;
+    seen.set(id, cur);
+  }
+  const matched = new Map();
+  for (const d of seen.values()) {
+    const g = bump(matched, d.k);
+    g.total++;
+    if (d.called) g.called++;
+    if (d.placed) g.placed++;
+  }
+
+  const bids = new Map();
+  const bands = Array.from({ length: 24 / CALL_BAND_HOURS }, () => ({ called: 0, converted: 0 }));
+  const bandsBySc = new Map();
+  for (const r of bidRows) {
+    const k = boardKey(r);
+    if (!k) continue;
+    // Snapshots synced before isCalled existed fall back to "any stage past POSTED".
+    const called = r.isCalled != null ? !!r.isCalled : (r.stage != null && r.stage !== 'POSTED');
+    const g = bump(bids, k);
+    g.total++;
+    if (r.isConverted) g.converted++;
+    if (!called) continue;
+    g.called++;
+    const h = createdHourIst(r.callAt || r.firstActionAt);
+    if (h == null) continue;
+    const band = Math.floor(h / CALL_BAND_HOURS);
+    bands[band].called++;
+    if (r.isConverted) bands[band].converted++;
+    if (!bandsBySc.has(k)) {
+      bandsBySc.set(k, Array.from({ length: bands.length }, () => ({ called: 0, converted: 0 })));
+    }
+    const b = bandsBySc.get(k)[band];
+    b.called++;
+    if (r.isConverted) b.converted++;
+  }
+
+  const bandRow = (b, i) => ({
+    band: callBandLabel(i), called: b.called, converted: b.converted, rate: pct(b.converted, b.called)
+  });
+  const pickBands = list => {
+    const eligible = list.map(bandRow).filter(b => b.called >= BOARD_MIN_BAND);
+    if (!eligible.length) return { best: null, worst: null };
+    const byRate = [...eligible].sort((a, b) => b.rate - a.rate || b.called - a.called);
+    return { best: byRate[0], worst: byRate[byRate.length - 1] };
+  };
+  const callTime = [...bandsBySc.entries()].map(([key, list]) => {
+    const { best, worst } = pickBands(list);
+    return { key, called: list.reduce((s, b) => s + b.called, 0), best, worst };
+  }).filter(r => r.best).sort((a, b) => b.called - a.called);
+
+  // One row per supercluster with every stage rate, and where it leaks most.
+  const keys = new Set([...bot.keys(), ...matched.keys(), ...bids.keys()]);
+  const table = [...keys].map(key => {
+    const b = bot.get(key), m = matched.get(key), d = bids.get(key);
+    const stages = [];
+    if (b && b.total >= BOARD_MIN_VOLUME) stages.push(['Bot demand → PSA action', pct(b.actioned, b.total)]);
+    if (m && m.total >= BOARD_MIN_VOLUME) {
+      stages.push(['Matched demand → called', pct(m.called, m.total)]);
+      if (m.called >= BOARD_MIN_BAND) stages.push(['Called → placed (matched)', pct(m.placed, m.called)]);
+    }
+    if (d && d.total >= BOARD_MIN_VOLUME) {
+      stages.push(['Bid → called', pct(d.called, d.total)]);
+      if (d.called >= BOARD_MIN_BAND) stages.push(['Called → fulfilled (bid)', pct(d.converted, d.called)]);
+    }
+    const weakest = stages.length ? stages.reduce((a, c) => (c[1] < a[1] ? c : a)) : null;
+    return {
+      key,
+      botDemands: b ? b.total : 0,
+      botActionedRate: b ? pct(b.actioned, b.total) : null,
+      matchedDemands: m ? m.total : 0,
+      matchedCalledRate: m ? pct(m.called, m.total) : null,
+      matchedPlacedRate: m ? pct(m.placed, m.called) : null,
+      bids: d ? d.total : 0,
+      bidsCalledRate: d ? pct(d.called, d.total) : null,
+      bidsFulfilledRate: d ? pct(d.converted, d.called) : null,
+      weakestStage: weakest ? weakest[0] : null,
+      weakestRate: weakest ? weakest[1] : null
+    };
+  }).sort((a, b) => (b.botDemands + b.matchedDemands + b.bids) - (a.botDemands + a.matchedDemands + a.bids));
+
+  return {
+    minVolume: BOARD_MIN_VOLUME,
+    minBandVolume: BOARD_MIN_BAND,
+    botActioned: rankBoard(bot, 'actioned'),
+    matchedCalled: rankBoard(matched, 'called'),
+    bidsCalled: rankBoard(bids, 'called'),
+    callTime,
+    callBands: bands.map(bandRow),
+    table
+  };
+}
+
 function aging(rows) {
   const buckets = AGING_BUCKETS.map(b => ({ bucket: b.key, total: 0, converted: 0 }));
   const untouched = { bucket: 'Never touched', total: 0, converted: 0 };
@@ -877,6 +1039,14 @@ function runSpec(spec, dataset = null) {
         applyFilters(data.demand, 'demand', base),
         applyFilters(data.inventory, 'inventory', base),
         limitOf(spec, 15)
+      );
+    }
+    case 'supercluster': {
+      const base = { ...(spec.filters || {}), outcome: 'all' };
+      return supercluster(
+        applyFilters(data.demand, 'demand', base),
+        applyFilters(data.inventory, 'inventory', base),
+        applyFilters(data.bids || [], 'bids', base)
       );
     }
     case 'rows':

@@ -1065,3 +1065,6 @@ textarea.sql-input {
   .chat-panel { right: 8px; left: 8px; bottom: 8px; width: auto; max-height: calc(100vh - 16px); }
   .chat-launcher { right: 12px; bottom: 12px; }
 }
+
+.board-sub { margin: 8px 0 2px; font-size: 12px; font-weight: 600; color: var(--text-muted, inherit); text-transform: uppercase; letter-spacing: .04em; }
+.board-sub:first-child { margin-top: 0; }

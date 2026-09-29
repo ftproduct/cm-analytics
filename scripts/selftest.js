@@ -148,6 +148,41 @@ check('faster response converts better than never touching it', () => {
     `0-6h (${fast.rate}%) should beat never-touched (${never.rate}%)`);
 });
 
+console.log('\nsupercluster leaderboard');
+{
+  const mk = (i, sc, over) => ({
+    originSuperCluster: sc, createdAt: '2026-05-01T10:00:00', ...over(i)
+  });
+  const ds = {
+    demand: [
+      ...Array.from({ length: 20 }, (_, i) => mk(i, 'Delhi NCR', () => ({ demandSource: 'Bot', psa: i < 15 ? 'Asha' : 'Demand_Bot_PSA' }))),
+      ...Array.from({ length: 20 }, (_, i) => mk(i, 'Bombay', () => ({ demandSource: 'Bot', psa: i < 5 ? 'Ravi' : 'Demand_Bot_PSA' }))),
+      ...Array.from({ length: 4 }, (_, i) => mk(i, 'Tiny', () => ({ demandSource: 'Bot', psa: 'Asha' })))
+    ],
+    inventory: Array.from({ length: 20 }, (_, i) => mk(i, 'Bombay', () => ({ demandId: i % 15, isCalled: i < 10 }))),
+    bids: Array.from({ length: 20 }, (_, i) => mk(i, 'Bombay', () => ({
+      isCalled: true, callAt: i < 10 ? '2026-05-01T10:30:00' : '2026-05-01T22:30:00', isConverted: i < 8 || i === 10
+    })))
+  };
+  const out = engine.runSpec({ kind: 'supercluster', filters: {} }, ds);
+  check('bot actioned ranks best first and drops clusters under the floor', () => {
+    assert.deepStrictEqual(out.botActioned.rows.map(r => [r.key, r.rate]), [['Delhi NCR', 75], ['Bombay', 25]]);
+    assert.strictEqual(out.botActioned.belowFloor, 1);
+  });
+  check('matched demands are counted once each', () => {
+    const b = out.matchedCalled.rows[0];
+    assert.strictEqual(b.total, 15);
+  });
+  check('best and worst call bands are found per supercluster', () => {
+    const r = out.callTime.find(x => x.key === 'Bombay');
+    assert.strictEqual(r.best.band, '09:00–12:00');
+    assert.strictEqual(r.worst.band, '21:00–24:00');
+  });
+  check('supercluster kind is a valid spec', () => {
+    assert.ok(require('../api/_specs').KINDS.has('supercluster'));
+  });
+}
+
 console.log('\nmatching');
 const leak = engine.runSpec({ kind: 'leakage', limit: 50, filters }).rows;
 check('matchable never exceeds either side of the pair', () => {

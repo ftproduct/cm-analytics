@@ -726,8 +726,9 @@ async function runSpec(spec) {
     case 'invMatch':
     case 'invMatchGroup':
     case 'invMatchDemandRows':
+    case 'supercluster':
       throw new Error(
-        `Metric "${spec.kind}" needs a synced snapshot (Metabase 1190 inventory matches). Press Sync.`
+        `Metric "${spec.kind}" needs a synced snapshot (Metabase 1190 inventory matches, FO App bids). Press Sync.`
       );
     default:
       throw new Error(`Unknown metric kind "${spec.kind}"`);

@@ -15,7 +15,7 @@
 const KINDS = new Set([
   'summary', 'group', 'timeseries', 'reasons', 'funnel', 'aging', 'heatmap',
   'movers', 'leakage', 'imbalance', 'officeHours', 'rows',
-  'invMatch', 'invMatchGroup', 'invMatchDemandRows'
+  'invMatch', 'invMatchGroup', 'invMatchDemandRows', 'supercluster'
 ]);
 
 const GRAINS = new Set(['day', 'week', 'month']);
