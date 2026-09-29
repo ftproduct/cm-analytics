@@ -78,6 +78,7 @@
       "status": "status",
       "stage": "funnel_stage",
       "nonConversionReason": "non_conversion_reason",
+      "source": "source",
       "matchedDemandId": "matched_demand_id",
       "capacityTons": null,
       "quantity": "quantity",
@@ -101,6 +102,8 @@
       "VEHICLE_AVAILABLE",
       "PLACED"
     ],
-    "aiCallSources": []
+    "aiCallSources": [
+      "agent"
+    ]
   }
 }

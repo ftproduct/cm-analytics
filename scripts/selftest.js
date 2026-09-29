@@ -238,11 +238,13 @@ console.log('\ninventory call source (AI vs manual)');
 const sumOf = rows => rows.reduce((s, r) => s + r.total, 0);
 const callSplit = engine.runSpec({ entity: 'inventory', kind: 'group', groupBy: 'callSource', limit: 0, filters });
 
-check('an uncalled match is its own bucket, not counted as human effort', () => {
-  assert.deepStrictEqual(callSplit.rows.map(r => r.key).sort(), ['AI called', 'Manual', 'Not called']);
+check('every inventory match is either agent-created or manual', () => {
+  // The source column says whether the AI agent's calling created the
+  // inventory; blank means it did not. So there is no third state to carve out.
+  assert.deepStrictEqual(callSplit.rows.map(r => r.key).sort(), ['AI called', 'Manual']);
 });
 
-check('the three buckets partition every inventory match', () => {
+check('the two buckets partition every inventory match', () => {
   const byLsp = engine.runSpec({ entity: 'inventory', kind: 'group', groupBy: 'lsp', limit: 0, filters });
   assert.strictEqual(sumOf(callSplit.rows), sumOf(byLsp.rows));
 });
@@ -265,20 +267,23 @@ check('listing the AI values in config is the whole switch-on', () => {
     return require('../api/_schema.js');
   };
   try {
-    cfg.inventory.aiCallSources = ['ai_call'];
+    cfg.inventory.aiCallSources = ['robot'];
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
-    const sql = reload().callSourceCase('it.inventory_type');
+    const sql = reload().callSourceCase('it.source');
     assert.ok(sql, 'listing the AI values did not bring the classifier up');
-    assert.ok(/'ai_call'/.test(sql), 'the configured AI value is not in the classifier');
-    assert.ok(/'Not called'/.test(sql) && /ELSE 'Manual'/.test(sql),
-      'an unrecognised inventory_type must read Manual and an absent one Not called');
+    assert.ok(/'robot'/.test(sql), 'the configured agent value is not in the classifier');
+    assert.ok(/ELSE 'Manual'/.test(sql), 'anything that is not the agent must read Manual');
+    assert.ok(!/'Not called'/.test(sql), 'blank means not-agent, not a third bucket');
+    // Blank and NULL must both test false rather than blowing up the CASE.
+    assert.ok(/coalesce\(cast\(it\.source AS string\), ''\)/.test(sql),
+      'a NULL source must fall to Manual, not to NULL');
 
-    // The dangerous state: with no AI values every call would read Manual and
+    // The dangerous state: with no agent values every row would read Manual and
     // look like a finding, so the classifier must refuse to produce SQL at all.
     cfg.inventory.aiCallSources = [];
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
-    assert.strictEqual(reload().callSourceCase('it.inventory_type'), null,
-      'no AI values must stay unavailable, not report 100% manual');
+    assert.strictEqual(reload().callSourceCase('it.source'), null,
+      'no agent values must stay unavailable, not report 100% manual');
   } finally {
     if (prev === undefined) delete process.env.MA_SCHEMA_JSON;
     else process.env.MA_SCHEMA_JSON = prev;
@@ -286,15 +291,24 @@ check('listing the AI values in config is the whole switch-on', () => {
   }
 });
 
-check('the inventory_type lookup cannot fan an inventory match into several', () => {
+check('the TLMS lookup cannot fan an inventory match into several', () => {
   // TLMS is a different grain: one FO-name session can hold several rows per
   // reference_id. Joined raw it would multiply inventory matches and inflate
   // every count on the tab, so the join must reduce to one row per key first.
-  const join = S.inventoryTypeJoin('it');
+  const join = S.inventoryLookupJoin('it');
   assert.ok(/GROUP BY reference_id/.test(join), 'the lookup no longer collapses to one row per reference_id');
-  assert.ok(/min\(lower\(trim\(inventory_type\)\)\)/.test(join), 'the lookup no longer picks a single value');
   assert.ok(/phase2poc_trip_location_mapping_static/.test(join));
   assert.ok(/LEFT JOIN/.test(join), 'an inner join would drop matches TLMS never saw');
+});
+
+check('one agent row in a session is enough to call the inventory agent-created', () => {
+  // The aggregate matters: min() over the raw source string would let a single
+  // blank row in the session hide the agent and undercount the AI side.
+  const join = S.inventoryLookupJoin('it');
+  assert.ok(/max\(CASE WHEN .*THEN 1 ELSE 0 END\) = 1 AS agent_created/.test(join),
+    'agent_created is no longer a max() over the agent test');
+  assert.ok(!/min\(lower\(trim\(coalesce\(source/.test(join),
+    'source must not fold with min() -- a blank row would mask the agent');
 });
 
 check('the unsynced fallback does not pretend to offer the split', () => {
