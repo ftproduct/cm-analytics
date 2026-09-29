@@ -11,7 +11,7 @@
 
   // ------------------------------------------------------------------ State
 
-  const FILTER_KEYS = ['lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource', 'originSuperCluster', 'destinationSuperCluster'];
+  const FILTER_KEYS = ['lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource', 'callSource', 'originSuperCluster', 'destinationSuperCluster'];
 
   // Always-visible filters sit in the primary row; everything else lives under More.
   const MORE_FILTER_KEYS = ['region', 'origin', 'destination', 'lane', 'psa', 'lsp', 'shipper', 'vehicleType', 'materialType'];
@@ -39,6 +39,7 @@
     materialType: 'materialType',
     laneType: 'laneType',
     demandSource: 'demandSource',
+    callSource: 'callSource',
     originSuperCluster: 'originSuperCluster',
     destinationSuperCluster: 'destinationSuperCluster'
   };
@@ -49,6 +50,7 @@
     psa: 'PSA', lsp: 'LSP', shipper: 'Shipper', vehicleType: 'Vehicle', materialType: 'Material',
     laneType: 'Power / non-power',
     demandSource: 'Bot / manual',
+    callSource: 'Called by',
     originSuperCluster: 'Origin supercluster',
     destinationSuperCluster: 'Dest supercluster'
   };
@@ -863,13 +865,17 @@
   // ---- Inventory (Metabase 1190 demand↔inventory match) ----------------
 
   async function renderInventory() {
+    // The call-source column is optional: deployments that do not record what
+    // placed the call get the tab they had before, not an empty panel.
+    const hasCallSource = (State.options.callSource || []).length > 0;
     $('#main').innerHTML = `
       <div class="tile-row" id="tiles"><div class="loading">Loading…</div></div>
       <div class="panel-grid">
         ${panel('Exact match funnel', 'Lane matches only: matched → called → vehicle available → demand placed (Metabase 1190).', { span: 6, body: 'exactFunnel' })}
         ${panel('Origin match funnel', 'Origin matches only — the broader inventory pool against the same demand set.', { span: 6, body: 'originFunnel' })}
-        ${panel('Inventory matches over time', 'Match volume with demands that placed via inventory stacked as success.', { span: 6, body: 'trend', actions: grainToggle(), legend: legend([['Placed (match rows)', 'var(--series-1)'], ['Not placed', 'var(--series-2)']]) })}
-        ${panel('Why inventory matches did not place', 'Demand status / call answer when the match did not lead to FT placement.', { span: 6, body: 'reasons', actions: csvButton('reasons') })}
+        ${panel('Inventory matches over time', 'Match volume with demands that placed via inventory stacked as success.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Placed (match rows)', 'var(--series-1)'], ['Not placed', 'var(--series-2)']]) })}
+        ${hasCallSource ? panel('AI called vs manual inventory', 'Whether the AI agent created this inventory by calling, or a person did. Placement rate sits beside each, so the two channels are compared on outcome rather than on volume. Click a bar to filter the dashboard to one channel.', { span: 6, body: 'callSplit', actions: csvButton('callSplit') }) : ''}
+        ${panel('Why inventory matches did not place', 'Demand status / call answer when the match did not lead to FT placement.', { span: hasCallSource ? 6 : 12, body: 'reasons', actions: csvButton('reasons') })}
         ${panel('Inventory — city wise', 'Demands matched with inventory, Exact vs Origin split, and funnel counts by origin city.', { span: 12, body: 'city', actions: csvButton('city') })}
         ${panel('Inventory — PSA wise', 'Same funnel by PSA (Demand_Bot_PSA excluded).', { span: 12, body: 'psa', actions: csvButton('psa') })}
         ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches. Call and availability detail inline.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
@@ -882,6 +888,7 @@
       { id: 'originFunnel', entity: 'inventory', kind: 'funnel', filters: { matchType: ['Origin'] } },
       { id: 'trend', entity: 'inventory', kind: 'timeseries', grain: State.grain },
       { id: 'reasons', entity: 'inventory', kind: 'reasons', limit: 12 },
+      ...(hasCallSource ? [{ id: 'callSplit', entity: 'inventory', kind: 'group', groupBy: 'callSource', limit: 5 }] : []),
       { id: 'city', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'originSuperCluster', limit: 30 },
       { id: 'psa', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'psa', limit: 40 },
       { id: 'demandRows', entity: 'inventory', kind: 'invMatchDemandRows', matchType: 'Exact', limit: 150 }
@@ -897,6 +904,21 @@
     fill('trend', R.trend, (host, p) => Charts.stackedBars(host, p.rows, {
       successLabel: 'Placed', failLabel: 'Not placed', rateLabel: 'Place rate'
     }));
+
+    if (hasCallSource) {
+      fill('callSplit', R.callSplit, (host, p) => {
+        Charts.rankedBars(host, p.rows, {
+          meta: rateMeta, tip: rateTip('matches', 'Placed'),
+          onSelect: r => { State.filters.callSource = [r.key]; onFiltersChanged(); }
+        });
+        wireCsv('callSplit', p.rows || [], [
+          { key: 'key', label: 'Called by' },
+          { key: 'total', label: 'Inventory matches', align: 'right', format: F.int },
+          { key: 'success', label: 'Placed', align: 'right', format: F.int },
+          { key: 'rate', label: 'Placement rate', align: 'right', format: F.pct }
+        ], 'ai-vs-manual-inventory.csv');
+      });
+    }
 
     const reasonCols = [
       { key: 'key', label: 'Reason' },
@@ -1510,7 +1532,7 @@
 
     const dims = State.meta?.dimensions?.[exploreEntity] || {};
     const select = $('#groupDim');
-    const preferred = ['demandSource', 'laneType', 'region', 'originSuperCluster', 'destinationSuperCluster', 'superClusterLane', 'lane', 'psa', 'lsp', 'vehicleType', 'origin', 'destination', 'shipper', 'materialType', 'reason', 'status', 'stage'];
+    const preferred = ['demandSource', 'callSource', 'laneType', 'region', 'originSuperCluster', 'destinationSuperCluster', 'superClusterLane', 'lane', 'psa', 'lsp', 'vehicleType', 'origin', 'destination', 'shipper', 'materialType', 'reason', 'status', 'stage'];
     const keys = preferred.filter(k => dims[k]);
     select.innerHTML = keys.map(k => `<option value="${k}">${dims[k].label}</option>`).join('') ||
       `<option value="superClusterLane">Supercluster lane</option>`;

@@ -22,7 +22,7 @@ const GRAINS = new Set(['day', 'week', 'month']);
 
 const FILTER_KEYS = [
   'lane', 'superClusterLane', 'origin', 'destination', 'region', 'psa', 'lsp', 'shipper',
-  'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource',
+  'vehicleType', 'materialType', 'reason', 'laneType', 'demandSource', 'callSource',
   'originSuperCluster', 'destinationSuperCluster', 'matchType'
 ];
 

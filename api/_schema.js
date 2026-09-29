@@ -244,6 +244,79 @@ function demandSourceExpr() {
   return c ? demandSourceCase(c) : null;
 }
 
+// Manual vs AI-called inventory, from the inventory `source` column on
+// phase2poc_trip_location_mapping_static: it says whether the AI agent's
+// calling created the inventory. Blank means it did not, so the split is two
+// buckets, not three -- blank is Manual by definition of the column, and there
+// is no "never called" state to carve out.
+//
+// The values that count as the agent live in inventory.aiCallSources rather
+// than in code, so a renamed agent is a config change. An empty list would
+// render everything Manual and read like a finding, so the classifier refuses
+// to produce SQL at all and the gap is listed on the Setup tab instead.
+function aiCallSourceList() {
+  const configured = getSchema().inventory.aiCallSources;
+  if (!Array.isArray(configured) || !configured.length) return null;
+  return configured.map(v => `'${String(v).trim().toLowerCase().replace(/'/g, "''")}'`);
+}
+
+// True when this row's source names the agent. Blank, NULL and anything
+// unrecognised are all "not the agent", which is exactly what the column means.
+function isAgentSourceExpr(expr) {
+  const list = aiCallSourceList();
+  if (!list) return null;
+  return `lower(trim(coalesce(cast(${expr} AS string), ''))) IN (${list.join(', ')})`;
+}
+
+function callSourceCase(expr) {
+  const test = isAgentSourceExpr(expr);
+  return test ? callSourceFromFlag(test) : null;
+}
+
+// Same two buckets from an already-resolved boolean, for callers that folded
+// the test into an aggregate. The labels live here only, so the snapshot's two
+// queries cannot drift into naming the same bucket differently.
+function callSourceFromFlag(flagExpr) {
+  if (!aiCallSourceList()) return null;
+  return `CASE WHEN ${flagExpr} THEN 'AI called' ELSE 'Manual' END`;
+}
+
+// The lookup that carries it. TLMS is a different table at a different grain
+// from the inventory fact -- the reconcile in sql/reconcile_mb1042_vs_app.sql
+// proves the only overlap is TLMS.reference_id -> demand_supply.id -- and one
+// FO-name session can hold several TLMS rows, so it is reduced to one row per
+// reference_id before the join. Joining it raw would fan a single inventory
+// match into several and inflate every count on the tab.
+//
+// The two columns need different aggregates. For source, ANY row naming the
+// agent means the agent created that inventory, so it folds with max() over a
+// flag -- min() over the raw string would let one blank row hide the agent.
+// inventory_type keeps min(), the same alphabetical bias Metabase's own card
+// 6280 applies, so a reference_id whose rows disagree resolves the way the
+// source dashboard does.
+function inventoryLookupJoin(alias = 'it') {
+  const source = col('inventory', 'source') || '`source`';
+  const test = isAgentSourceExpr(source) || 'false';
+  return `LEFT JOIN (
+    SELECT
+      reference_id,
+      max(CASE WHEN ${test} THEN 1 ELSE 0 END) = 1 AS agent_created,
+      min(lower(trim(coalesce(inventory_type, '')))) AS inventory_type
+    FROM ${qualifiedName('phase2poc_trip_location_mapping_static')}
+    WHERE reference_id IS NOT NULL
+    GROUP BY reference_id
+  ) ${alias}`;
+}
+
+// Deliberately null: the classification needs the TLMS join above, and the
+// live-SQL path queries phase2poc_demand_supply on its own. Returning an
+// expression here would make the dimension look available in the unsynced
+// fallback and then fail at query time. The snapshot carries it instead, which
+// is how the dashboard actually serves -- see SCHEMA.md.
+function callSourceExpr() {
+  return null;
+}
+
 function statusListSql(values) {
   return (values || []).map(v => `'${String(v).replace(/'/g, "''")}'`);
 }
@@ -327,6 +400,7 @@ const DIMENSIONS = {
     branch:      { label: 'Branch',       expr: () => col('inventory', 'branch') },
     status:      { label: 'Status',       expr: () => col('inventory', 'status') },
     stage:       { label: 'Funnel stage', expr: () => col('inventory', 'stage') },
+    callSource:  { label: 'Called by',    expr: () => callSourceExpr() },
     reason:      { label: 'Non-conversion reason', expr: () => col('inventory', 'nonConversionReason') }
   }
 };
@@ -354,6 +428,8 @@ module.exports = {
   getSchema, tableRef, fromRef, col, reqCol, has, quote,
   laneExpr, superClusterLaneExpr, unfulfilmentReasonExpr,
   demandSourceExpr, demandSourceCase,
+  callSourceExpr, callSourceCase, callSourceFromFlag,
+  inventoryLookupJoin, isAgentSourceExpr,
   isFulfilledExpr, isConvertedExpr, excludeStatusesExpr,
   inventoryJoinedSubquery,
   DIMENSIONS, availableDimensions, dimensionExpr

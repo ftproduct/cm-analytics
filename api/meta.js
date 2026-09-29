@@ -81,6 +81,13 @@ module.exports = async (req, res) => {
         out.warnings.push(`${entity}.${col} is not mapped — ${feature} is unavailable.`);
       }
     }
+
+    // The AI-call split is configured by value, not by column: the snapshot
+    // carries inventory_type from trip_location_mapping_static, and
+    // aiCallSources says which of its values mean the AI caller.
+    if (!(schema.inventory.aiCallSources || []).length) {
+      out.warnings.push('inventory.aiCallSources is empty — the AI-called vs manual inventory split is unavailable. Sync, then read the real values from /api/filters (inventoryType) and list the AI ones here.');
+    }
   } catch (e) {
     out.schemaError = e.message;
   }
