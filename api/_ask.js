@@ -45,7 +45,8 @@ const KIND_NOTES = {
   rows:        'individual records — use only when someone asks for examples, never for a count',
   invMatch:    'inventory match funnel between demand and inventory',
   invMatchGroup: 'inventory match rates broken down by one dimension (needs groupBy)',
-  invMatchDemandRows: 'individual demands with their inventory matches'
+  invMatchDemandRows: 'individual demands with their inventory matches',
+  supercluster: 'origin-supercluster leaderboards: bot demands actioned by a PSA, matched demands called, bids called, best/worst call time for bids'
 };
 
 function assertCardCoversKinds() {

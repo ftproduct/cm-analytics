@@ -286,6 +286,12 @@ function bidsQuery(from, to, limit) {
   ) AS superClusterLane,
   ${zone.zoneSqlFromSuperCluster(clusters, 'd.origin_super_cluster_name')} AS region,
   cast(NULL AS string) AS branch,
+  lower(trim(coalesce(ds.is_called, ''))) IN ('true', '1', 'yes', 'y') AS isCalled,
+  CASE
+    WHEN lower(trim(coalesce(ds.is_called, ''))) IN ('true', '1', 'yes', 'y')
+      THEN cast(ds.updated_at AS string)
+    ELSE NULL
+  END AS callAt,
   mb.fo_name AS lsp,
   d.psa AS psa,
   coalesce(d.truck_type, mb.truck_type) AS vehicleType,
