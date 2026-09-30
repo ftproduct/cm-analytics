@@ -495,7 +495,6 @@ async function snapshotChecks() {
     assert.strictEqual(afterClear, null);
   });
 
-  console.log(`\n${checks} checks passed\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -800,6 +799,63 @@ async function assistantChecks() {
   }
 }
 
+function csvExportChecks() {
+  const csv = require('./export-csv.js');
+  console.log('\ncsv export');
+
+  check('a cell with a comma, quote or newline survives the round trip', () => {
+    assert.strictEqual(csv.csvCell('Delhi'), 'Delhi');
+    assert.strictEqual(csv.csvCell('Delhi, NCR'), '"Delhi, NCR"');
+    assert.strictEqual(csv.csvCell('He said "hi"'), '"He said ""hi"""');
+    assert.strictEqual(csv.csvCell('line1\nline2'), '"line1\nline2"');
+    // Null and undefined are an empty cell, not the strings "null"/"undefined",
+    // which would read as a real value once the file is open in a spreadsheet.
+    assert.strictEqual(csv.csvCell(null), '');
+    assert.strictEqual(csv.csvCell(undefined), '');
+    assert.strictEqual(csv.csvCell(0), '0');
+    assert.strictEqual(csv.csvCell(false), 'false');
+  });
+
+  check('a column only later rows carry still reaches the header', () => {
+    const cols = csv.columnsOf([{ a: 1 }, { a: 2, b: 3 }, { c: 4 }]);
+    assert.deepStrictEqual(cols, ['a', 'b', 'c']);
+  });
+
+  check('rows write with every column aligned to the header', () => {
+    const file = path.join(require('os').tmpdir(), `ma-export-${process.pid}.csv`);
+    const stat = csv.writeCsv(file, [
+      { lane: 'A → B', region: 'North', isFulfilled: true },
+      { lane: 'C, D', region: null, isFulfilled: false, extra: 'x' }
+    ]);
+    const text = fs.readFileSync(file, 'utf8');
+    fs.unlinkSync(file);
+    assert.strictEqual(stat.rows, 2);
+    const lines = text.split('\n').filter(Boolean);
+    assert.strictEqual(lines[0], '﻿lane,region,isFulfilled,extra');
+    assert.strictEqual(lines[1], 'A → B,North,true,');
+    assert.strictEqual(lines[2], '"C, D",,false,x');
+  });
+
+  check('--only rejects a dataset that does not exist', () => {
+    assert.deepStrictEqual(csv.parseArgs(['--only', 'demand,bids']).only, ['demand', 'bids']);
+    assert.throws(() => csv.parseArgs(['--only', 'supply']), /supply/);
+    assert.throws(() => csv.parseArgs(['--dyas', '30']), /Unknown option/);
+    assert.throws(() => csv.parseArgs(['--days', 'thirty']), /needs a number/);
+  });
+
+  check('every dataset the exporter offers has a query behind it', () => {
+    const sync = require('../api/_sync.js');
+    const builders = {
+      demand: sync.demandQuery, inventory: sync.inventoryQuery, bids: sync.bidsQuery
+    };
+    for (const name of csv.DATASETS) {
+      assert.strictEqual(typeof builders[name], 'function', `${name} has no query builder`);
+    }
+  });
+}
+
 assistantChecks()
   .then(snapshotChecks)
+  .then(csvExportChecks)
+  .then(() => console.log(`\n${checks} checks passed\n`))
   .catch(e => { console.error('\n' + e.stack); process.exit(1); });

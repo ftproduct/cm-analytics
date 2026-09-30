@@ -473,4 +473,7 @@ async function runSync(opts = {}) {
   return meta;
 }
 
-module.exports = { runSync, windowFor, DEFAULT_DAYS, MAX_ROWS };
+module.exports = {
+  runSync, windowFor, normalise, DEFAULT_DAYS, MAX_ROWS,
+  demandQuery, inventoryQuery, bidsQuery
+};

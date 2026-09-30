@@ -13,3 +13,6 @@ build/
 # Logs and OS files
 *.log
 .DS_Store
+
+# Local data exports (production rows -- never commit)
+exports/

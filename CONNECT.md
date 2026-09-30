@@ -185,3 +185,28 @@ Set the same variables in the Vercel project, **plus**:
   shared between instances and is lost on a cold start.
 
 Do **not** set `MA_DEV_ALLOW_ANONYMOUS` in Vercel; it is ignored there by design.
+
+---
+
+## Exporting to CSV
+
+`npm run export` reads Databricks directly and writes CSV files — no snapshot,
+no dashboard, no cache. It uses the same `.env` and the same queries the tabs
+are built from, so a count in the CSV reconciles with the same count in the app.
+
+```bash
+npm run export                      # last 90 days, all three datasets
+npm run export -- --days 30
+npm run export -- --only demand,bids
+npm run export -- --out ~/Downloads
+npm run export -- --sql "SELECT source, count(*) c FROM elh_prod.ftverse.phase2poc_demand GROUP BY 1" --name source-split
+```
+
+Files land in `exports/` (gitignored — they hold production rows) named
+`demand-2026-07-02-to-2026-09-30.csv` and so on. Columns are the dashboard's
+logical names: `createdDate`, `region`, `lane`, `demandSource`, `callSource`,
+`isFulfilled`, not the warehouse's physical column names.
+
+If one dataset's query fails, the others still export and the run exits non-zero
+naming the failure — it never writes an empty file that would read as "no rows
+in this window".

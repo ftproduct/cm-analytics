@@ -14,9 +14,10 @@ had?**
 ```bash
 cd marketplace-analytics
 npm run dev          # http://localhost:3000, generated demo data
-npm run check        # 22 assertions over every metric and the cache round trip
+npm run check        # 81 assertions over every metric and the cache round trip
 npm run discover     # scan Databricks and propose config/schema.json
 npm run sync         # pull a snapshot from Databricks
+npm run export       # pull from Databricks straight into CSV files
 ```
 
 **To connect it to real data, follow [CONNECT.md](./CONNECT.md)** — four steps,
