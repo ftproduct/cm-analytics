@@ -277,7 +277,11 @@ function callSourceCase(expr) {
 // the test into an aggregate. The labels live here only, so the snapshot's two
 // queries cannot drift into naming the same bucket differently.
 function callSourceFromFlag(flagExpr) {
-  if (!aiCallSourceList()) return null;
+  // The flag is only meaningful if the column it was folded from exists. With
+  // the column unmapped every row tests false and the split would read 100%
+  // Manual -- a confident wrong answer, which is the one outcome this
+  // classification must never produce.
+  if (!aiCallSourceList() || !col('inventory', 'source')) return null;
   return `CASE WHEN ${flagExpr} THEN 'AI called' ELSE 'Manual' END`;
 }
 
@@ -294,9 +298,14 @@ function callSourceFromFlag(flagExpr) {
 // inventory_type keeps min(), the same alphabetical bias Metabase's own card
 // 6280 applies, so a reference_id whose rows disagree resolves the way the
 // source dashboard does.
+// Unmapped means UNMAPPED: emit no reference to the column at all. Falling back
+// to a hardcoded `source` here is what took the Inventory and FO App bids tabs
+// to zero -- TLMS had no such column, both queries failed on UNRESOLVED_COLUMN,
+// and runSync's try/catch turned each failure into an empty row set. A schema
+// mistake read as a data story.
 function inventoryLookupJoin(alias = 'it') {
-  const source = col('inventory', 'source') || '`source`';
-  const test = isAgentSourceExpr(source) || 'false';
+  const source = col('inventory', 'source');
+  const test = (source && isAgentSourceExpr(source)) || 'false';
   return `LEFT JOIN (
     SELECT
       reference_id,

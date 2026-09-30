@@ -43,6 +43,14 @@ function callSourceSql(expr, { resolved = false } = {}) {
   return sql || `cast(NULL AS string)`;
 }
 
+// The bids query reads the column straight off TLMS, so it must not name it
+// when it is not mapped -- see the note on inventoryLookupJoin.
+function bidsCallSourceSql(alias) {
+  const physical = S.getSchema().inventory.columns.source;
+  if (!physical) return `cast(NULL AS string)`;
+  return callSourceSql(`${alias}.${S.quote(physical)}`);
+}
+
 function demandSourceSql(alias) {
   const physical = S.getSchema().demand.columns.source;
   if (!physical) return `cast(NULL AS string)`;
@@ -331,7 +339,7 @@ function bidsQuery(from, to, limit) {
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
   lower(trim(coalesce(mb.inventory_type, ''))) AS inventoryType,
-  ${callSourceSql(`mb.${S.quote(S.getSchema().inventory.columns.source || 'source')}`)} AS callSource,
+  ${bidsCallSourceSql('mb')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
 FROM ${mb} mb

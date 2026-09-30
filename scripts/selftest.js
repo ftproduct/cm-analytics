@@ -293,7 +293,7 @@ check('filtering to AI-called returns exactly those matches', () => {
   assert.strictEqual(sumOf(only.rows), ai.total);
 });
 
-check('listing the AI values in config is the whole switch-on', () => {
+check('mapping the column and listing the AI values is the whole switch-on', () => {
   const file = path.join(__dirname, '..', 'config', 'schema.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
   const prev = process.env.MA_SCHEMA_JSON;
@@ -302,10 +302,11 @@ check('listing the AI values in config is the whole switch-on', () => {
     return require('../api/_schema.js');
   };
   try {
+    cfg.inventory.columns.source = 'source';
     cfg.inventory.aiCallSources = ['robot'];
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
     const sql = reload().callSourceCase('it.source');
-    assert.ok(sql, 'listing the AI values did not bring the classifier up');
+    assert.ok(sql, 'mapping the column and listing the AI values did not bring the classifier up');
     assert.ok(/'robot'/.test(sql), 'the configured agent value is not in the classifier');
     assert.ok(/ELSE 'Manual'/.test(sql), 'anything that is not the agent must read Manual');
     assert.ok(!/'Not called'/.test(sql), 'blank means not-agent, not a third bucket');
@@ -319,6 +320,13 @@ check('listing the AI values in config is the whole switch-on', () => {
     process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
     assert.strictEqual(reload().callSourceCase('it.source'), null,
       'no agent values must stay unavailable, not report 100% manual');
+
+    // The other half, and the one that broke production: the column itself.
+    cfg.inventory.columns.source = null;
+    cfg.inventory.aiCallSources = ['robot'];
+    process.env.MA_SCHEMA_JSON = JSON.stringify(cfg);
+    assert.strictEqual(reload().callSourceCase('it.source'), null,
+      'no mapped column must stay unavailable, not report 100% manual');
   } finally {
     if (prev === undefined) delete process.env.MA_SCHEMA_JSON;
     else process.env.MA_SCHEMA_JSON = prev;
@@ -346,6 +354,19 @@ check('one agent row in a session is enough to call the inventory agent-created'
     'source must not fold with min() -- a blank row would mask the agent');
 });
 
+check('an unmapped source column names no column and claims no split', () => {
+  // This is the regression that took Inventory and FO App bids to zero: the
+  // lookup fell back to a hardcoded `source`, TLMS had no such column, both
+  // queries failed, and runSync's try/catch stored the failures as empty rows.
+  const join = S.inventoryLookupJoin('it');
+  assert.ok(!/`source`/.test(join),
+    'the lookup names a source column that config says is not mapped');
+  assert.ok(/max\(CASE WHEN false THEN 1 ELSE 0 END\) = 1 AS agent_created/.test(join),
+    'with no column mapped the agent flag must be a literal false, not a column test');
+  assert.strictEqual(S.callSourceFromFlag('it.agent_created'), null,
+    'an always-false flag must yield no classification at all, not 100% Manual');
+});
+
 check('the unsynced fallback does not pretend to offer the split', () => {
   // The classification needs the TLMS join; live SQL queries demand_supply on
   // its own. Offering the dimension there would fail at query time instead.
@@ -362,6 +383,19 @@ check('the call-source filter leaves the demand side alone', () => {
     entity: 'demand', kind: 'summary', filters: { ...filters, callSource: ['AI called'] }
   });
   assert.strictEqual(after.current.total, before.current.total);
+});
+
+check('a failed inventory or bids sync is reported, not shown as zero', () => {
+  // runSync catches these two so demand survives, and stores [] for the entity.
+  // Without a warning the tab reads zero and looks like a finding. Assert the
+  // captured error actually reaches the Setup tab.
+  const sync = fs.readFileSync(path.join(__dirname, '..', 'api', '_sync.js'), 'utf8');
+  const meta = fs.readFileSync(path.join(__dirname, '..', 'api', 'meta.js'), 'utf8');
+  for (const key of ['inventoryError', 'bidsError']) {
+    assert.ok(sync.includes(key), `_sync.js no longer captures ${key}`);
+    assert.ok(meta.includes(`snapshotMeta?.${key}`),
+      `meta.js does not surface ${key} — a failed query would read as zero rows`);
+  }
 });
 
 check('every list that has to know about callSource does', () => {
