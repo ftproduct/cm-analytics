@@ -298,6 +298,16 @@ a { color: var(--series-1); }
   font-weight: 600;
 }
 
+/* One line under the tab strip saying what the current view answers. No
+   `display` here, so the [hidden] attribute still hides it on tabs that have
+   no intro line. */
+.view-intro {
+  margin: 12px 20px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 88ch;
+}
+
 /* ----------------------------------------------------------------- Filters */
 
 .filter-bar[hidden] { display: none; }
