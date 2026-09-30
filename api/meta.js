@@ -47,6 +47,15 @@ module.exports = async (req, res) => {
       ? 'The snapshot is a local file. That works for development, but Vercel\'s filesystem is read-only and per-instance — configure KV_REST_API_URL and KV_REST_API_TOKEN before deploying.'
       : 'The snapshot is held in this instance\'s memory only — it is lost on a cold start and not shared between instances. Configure KV_REST_API_URL and KV_REST_API_TOKEN for a durable shared cache.');
   }
+  // A failed inventory or bids query is caught during sync so demand survives,
+  // but the caught error only ever reached the snapshot meta -- the tabs simply
+  // read zero, which looks like a finding rather than a break. Say it out loud.
+  if (snapshotMeta?.inventoryError) {
+    out.cache.warnings.push(`The inventory query failed on the last sync, so the Inventory tab is empty rather than zero: ${snapshotMeta.inventoryError}`);
+  }
+  if (snapshotMeta?.bidsError) {
+    out.cache.warnings.push(`The FO App bids query failed on the last sync, so that tab is empty rather than zero: ${snapshotMeta.bidsError}`);
+  }
   if (snapshotMeta?.truncated) {
     out.cache.warnings.push('The last sync hit its row limit, so the snapshot covers a shorter window than requested. Raise MA_SYNC_MAX_ROWS or reduce MA_SYNC_DAYS.');
   }
