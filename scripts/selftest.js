@@ -495,7 +495,6 @@ async function snapshotChecks() {
     assert.strictEqual(afterClear, null);
   });
 
-  console.log(`\n${checks} checks passed\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -800,6 +799,36 @@ async function assistantChecks() {
   }
 }
 
+function repoShapeChecks() {
+  console.log('\nrepo shape');
+
+  // CLAUDE.md promises an incoming contributor -- human or agent -- that this
+  // repo has no dependencies and no build step. A promise nothing enforces is
+  // one someone breaks on their first awkward afternoon.
+  check('package.json declares no dependencies of any kind', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [],
+      'a dependency was added -- this project is deliberately dependency-free');
+    assert.deepStrictEqual(Object.keys(pkg.devDependencies || {}), [],
+      'a devDependency was added -- this project is deliberately dependency-free');
+  });
+
+  // The root _env.js / discover.js / selftest.js / sync-cli.js are stale copies
+  // of the ones in scripts/. Editing the wrong one is silent: the change does
+  // nothing and this suite never sees it. Pin every script to scripts/ so a
+  // command repointed at a root copy fails here instead of in production.
+  check('every npm script runs the copy in scripts/, not a root duplicate', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+      if (name === 'dev') continue;             // dev-server.js genuinely lives at the root
+      assert.ok(/\bscripts\//.test(cmd), `npm run ${name} does not point into scripts/: ${cmd}`);
+    }
+  });
+}
+
 assistantChecks()
   .then(snapshotChecks)
-  .catch(e => { console.error('\n' + e.stack); process.exit(1); });
+  .then(repoShapeChecks)
+  .then(() => console.log(`\n${checks} checks passed\n`))
+  .catch(e => { console.error(
+ + e.stack); process.exit(1); });
