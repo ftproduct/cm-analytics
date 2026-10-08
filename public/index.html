@@ -61,6 +61,22 @@
         </div>
         <button id="resetFilters" class="ghost-btn" type="button">Reset</button>
         <button id="copyLink" class="ghost-btn" type="button" title="Copy a link that reproduces this exact view">Copy view link</button>
+        <div class="export-menu">
+          <button id="exportBtn" class="ghost-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="exportPopover" title="Download the synced rows behind this view, with the current filters applied">Export data</button>
+          <div id="exportPopover" class="popover export-popover" role="menu" hidden>
+            <div class="export-note">Synced rows matching the current dates and filters.</div>
+            <div class="export-row"><span>Demand</span>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="demand" data-format="csv">CSV</button>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="demand" data-format="json">JSON</button></div>
+            <div class="export-row"><span>Inventory</span>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="inventory" data-format="csv">CSV</button>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="inventory" data-format="json">JSON</button></div>
+            <div class="export-row"><span>FO App bids</span>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="bids" data-format="csv">CSV</button>
+              <button type="button" class="ghost-btn" role="menuitem" data-export="bids" data-format="json">JSON</button></div>
+            <div class="export-status" id="exportStatus" role="status" aria-live="polite"></div>
+          </div>
+        </div>
       </div>
     </div>
 

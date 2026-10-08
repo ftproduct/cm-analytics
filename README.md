@@ -155,6 +155,26 @@ cannot double-scan the tables.
 **Refresh** (next to Sync) only redraws from the snapshot. It never queries
 Databricks — that is what Sync is for.
 
+### Exporting the synced rows
+
+**Export data** (filter bar, any tab) downloads the row-level snapshot behind the
+dashboard — demand, inventory or FO App bids — as **CSV** or **JSON**. The file
+holds every synced column, narrowed by the dates and filters currently applied,
+so it matches the view it was taken from. It reads the snapshot only and never
+queries Databricks; before the first sync it reports that there is nothing to
+export.
+
+The same file is available from the API:
+
+```
+GET /api/export?entity=demand|inventory|bids&format=csv|json&from=2026-09-01&to=2026-09-30&laneType=Power%20lane&demandSource=Bot~Manual
+```
+
+Filters use the same names and `~` separator as the page URL. CSV opens in Excel
+as UTF-8, and text cells that start with `=`, `+`, `-` or `@` are prefixed with
+an apostrophe so a spreadsheet cannot run them as formulas. Any signed-in user
+can export, as they can already read the Explore tab.
+
 ---
 
 ## Pointing it at your tables

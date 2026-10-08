@@ -448,6 +448,14 @@ a { color: var(--series-1); }
   padding: 8px;
 }
 .popover[hidden] { display: none; }
+
+.export-menu { position: relative; display: inline-flex; }
+.export-popover { left: auto; right: 0; width: 280px; gap: 6px; }
+.export-note { font-size: 12px; color: var(--text-muted); padding: 2px 4px 6px; }
+.export-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.export-row span { flex: 1; font-size: 13px; color: var(--text-primary); }
+.export-status { font-size: 12px; color: var(--text-muted); padding: 4px 4px 0; min-height: 16px; }
+.export-status.error { color: var(--bad, #c0392b); }
 .popover input[type="search"], .popover input[type="date"] {
   width: 100%;
   padding: 7px 9px;

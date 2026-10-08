@@ -495,7 +495,78 @@ async function snapshotChecks() {
     assert.strictEqual(afterClear, null);
   });
 
+  exportChecks();
+
   console.log(`\n${checks} checks passed\n`);
+}
+
+function exportChecks() {
+  console.log('\nexport');
+  const exporter = require('../api/_export.js');
+  const data = demo.build();
+  const f = { ...filters, outcome: 'all' };
+  const join = it => [...it].join('');
+  const parseCsv = text => {
+    // Minimal RFC 4180 reader, enough to prove quoting survives a round trip.
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = ''; }
+      else cell += c;
+    }
+    return rows;
+  };
+
+  check('export returns exactly the rows the dashboard filters select', () => {
+    const rows = exporter.selectRows(data, 'demand', f);
+    assert.strictEqual(rows.length, summary.current.total);
+    const only = exporter.selectRows(data, 'demand', { ...f, outcome: 'fail' });
+    assert.strictEqual(only.length, summary.current.failed);
+  });
+  check('CSV has one line per row plus a header, and every column survives', () => {
+    const rows = exporter.selectRows(data, 'inventory', f);
+    const csv = join(exporter.chunks(rows, 'csv'));
+    assert.ok(csv.startsWith('\uFEFF'), 'missing the Excel UTF-8 marker');
+    const parsed = parseCsv(csv.slice(1));
+    assert.strictEqual(parsed.length, rows.length + 1);
+    assert.deepStrictEqual(parsed[0], exporter.columnsOf(rows));
+    assert.ok(parsed.every(r => r.length === parsed[0].length), 'a row has the wrong number of cells');
+  });
+  check('JSON is a valid array of the same rows with one shape throughout', () => {
+    const rows = exporter.selectRows(data, 'demand', f);
+    const out = JSON.parse(join(exporter.chunks(rows, 'json')));
+    assert.strictEqual(out.length, rows.length);
+    assert.strictEqual(out[0].id, rows[0].id);
+    assert.deepStrictEqual(Object.keys(out[0]), Object.keys(out[out.length - 1]));
+  });
+  check('an empty selection is still a valid file', () => {
+    assert.deepStrictEqual(JSON.parse(join(exporter.chunks([], 'json'))), []);
+    assert.strictEqual(join(exporter.chunks([], 'csv')), '\uFEFF\r\n');
+  });
+  check('CSV quotes commas, quotes and newlines, and defuses spreadsheet formulas', () => {
+    assert.strictEqual(exporter.csvCell('a,b'), '"a,b"');
+    assert.strictEqual(exporter.csvCell('say "hi"'), '"say ""hi"""');
+    assert.strictEqual(exporter.csvCell('line1\nline2'), '"line1\nline2"');
+    assert.strictEqual(exporter.csvCell('=HYPERLINK("x")'), '"\'=HYPERLINK(""x"")"');
+    assert.strictEqual(exporter.csvCell('@cmd'), "'@cmd");
+    assert.strictEqual(exporter.csvCell(-12.5), '-12.5');
+    assert.strictEqual(exporter.csvCell('-12.5'), '-12.5');
+    assert.strictEqual(exporter.csvCell(null), '');
+    assert.strictEqual(exporter.csvCell(false), 'false');
+  });
+  check('columns missing from some rows are kept, not dropped', () => {
+    const cols = exporter.columnsOf([{ a: 1 }, { a: 2, b: 3 }]);
+    assert.deepStrictEqual(cols, ['a', 'b']);
+    assert.deepStrictEqual(JSON.parse(join(exporter.chunks([{ a: 1 }, { a: 2, b: 3 }], 'json'))),
+      [{ a: 1, b: null }, { a: 2, b: 3 }]);
+  });
+  check('the filename carries the entity and date range', () => {
+    assert.strictEqual(exporter.filename('inventory', 'csv', { from: '2026-09-01', to: '2026-09-30' }),
+      'marketplace-inventory-2026-09-01_to_2026-09-30.csv');
+  });
 }
 
 // ---------------------------------------------------------------------------
