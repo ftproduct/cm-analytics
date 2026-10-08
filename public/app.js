@@ -217,6 +217,7 @@
       });
     }
     renderDateChip();
+    wireExport();
     document.querySelectorAll('#outcomeToggle button').forEach(b => {
       b.setAttribute('aria-pressed', String(b.dataset.outcome === State.filters.outcome));
     });
@@ -2047,6 +2048,69 @@
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => { if (!State.loading) render(); }, 220);
     });
+  }
+
+  // ------------------------------------------------------------- Export
+
+  // Same filter names and `~` separator as the page URL, so the file matches the view.
+  function exportUrl(entity, format) {
+    const p = new URLSearchParams({ entity, format });
+    const f = activeFilters();
+    for (const [k, v] of Object.entries(f)) {
+      if (v === null || v === undefined || v === '') continue;
+      p.set(k, Array.isArray(v) ? v.join('~') : v);
+    }
+    return `/api/export?${p}`;
+  }
+
+  async function downloadExport(entity, format) {
+    const status = $('#exportStatus');
+    status.className = 'export-status';
+    status.textContent = 'Preparing…';
+    try {
+      const res = await fetch(exportUrl(entity, format));
+      if (res.status === 401) {
+        const body = await res.json().catch(() => ({}));
+        if (body.login) { location.href = body.login + '?next=' + encodeURIComponent(location.pathname + location.search); return; }
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1]
+        || `marketplace-${entity}.${format}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const n = Number(res.headers.get('X-Export-Rows'));
+      status.textContent = Number.isFinite(n) ? `Downloaded ${F.int(n)} rows.` : 'Downloaded.';
+    } catch (e) {
+      status.className = 'export-status error';
+      status.textContent = e.message;
+    }
+  }
+
+  function wireExport() {
+    const btn = $('#exportBtn');
+    const pop = $('#exportPopover');
+    if (!btn || !pop) return;
+    const setOpen = open => {
+      pop.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) $('#exportStatus').textContent = '';
+    };
+    btn.addEventListener('click', e => { e.stopPropagation(); setOpen(pop.hidden); });
+    pop.addEventListener('click', e => e.stopPropagation());
+    document.addEventListener('click', () => setOpen(false));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+    pop.querySelectorAll('[data-export]').forEach(b =>
+      b.addEventListener('click', () => downloadExport(b.dataset.export, b.dataset.format)));
   }
 
   async function init() {

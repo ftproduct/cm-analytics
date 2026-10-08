@@ -1056,4 +1056,7 @@ function runSpec(spec, dataset = null) {
   }
 }
 
-module.exports = { runSpec, filterOptions, shiftWindow, AGING_BUCKETS, OFFICE_HOURS_ORDER, officeHoursBucket };
+module.exports = {
+  runSpec, filterOptions, shiftWindow, applyFilters, ensureDerivedFields,
+  AGING_BUCKETS, OFFICE_HOURS_ORDER, officeHoursBucket
+};
