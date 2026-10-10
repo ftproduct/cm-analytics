@@ -495,9 +495,41 @@ async function snapshotChecks() {
     assert.strictEqual(afterClear, null);
   });
 
+  bidsParityChecks();
   exportChecks();
 
   console.log(`\n${checks} checks passed\n`);
+}
+
+function bidsParityChecks() {
+  console.log('\nFO App bids query');
+  const { bidsQuery } = require('../api/_sync.js');
+  const sql = bidsQuery('2026-04-01', '2026-10-09', 1000);
+  const flat = sql.replace(/\s+/g, ' ');
+  check('bids are driven from demand_supply, as the Metabase question is', () => {
+    assert.ok(/FROM `[^`]*`\.`[^`]*`\.`phase2poc_demand_supply` ds LEFT JOIN/.test(flat), 'FROM must be demand_supply');
+    assert.ok(!/FROM `[^`]*`\.`[^`]*`\.`phase2poc_trip_location_mapping_static` mb/.test(flat),
+      'TLMS must not drive the row set');
+  });
+  check('the row set is FO_APP bids windowed on ds.created_at', () => {
+    assert.ok(flat.includes("upper(trim(coalesce(ds.original_source_bidding, ''))) = 'FO_APP'"));
+    assert.ok(flat.includes('to_date(ds.created_at) >= to_date(:p0)'));
+    assert.ok(flat.includes('to_date(ds.created_at) <= to_date(:p1)'));
+  });
+  check('placed needs placement available, placed-by-FT status and a non-call lsp', () => {
+    const placed = /is_placement_available AS string\)\)\) IN \([^)]*\) AND upper\(trim\(coalesce\(d\.status, ''\)\)\) = 'VEHICLE_PLACED_BY_FT' AND lower\(coalesce\(d\.lsp, ''\)\) NOT LIKE '%call%'/;
+    assert.ok(placed.test(flat), 'the three-part placed rule is missing');
+    // The rule is inlined wherever a placed bid is tested; a bare status test
+    // anywhere would let a non-call/placement-less bid count as converted.
+    const tests = flat.split("= 'VEHICLE_PLACED_BY_FT'").slice(1);
+    assert.ok(tests.length >= 5, 'expected the placed rule at every conversion site');
+    assert.ok(tests.every(t => t.startsWith(" AND lower(coalesce(d.lsp, '')) NOT LIKE '%call%'")),
+      'status is tested outside the shared placed rule');
+  });
+  check('TLMS is deduplicated per reference so it cannot multiply bids', () => {
+    assert.ok(/QUALIFY row_number\(\) OVER \(PARTITION BY reference_id/.test(flat));
+    assert.ok(/LEFT JOIN \(SELECT \* FROM/.test(flat));
+  });
 }
 
 function exportChecks() {
