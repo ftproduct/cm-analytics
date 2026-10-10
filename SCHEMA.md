@@ -14,7 +14,7 @@ To change the mapping without a redeploy, put the whole JSON document in the
 
 Signed-in admins can do all of this from the **Setup** tab's SQL console. Outside
 the app, run these in a Databricks SQL editor against warehouse
-`123f8c6553d1967b`.
+`aa3d5e33b93f4574`.
 
 ```sql
 -- 1. Which catalogs and schemas exist
@@ -167,8 +167,18 @@ separate cut (`fo_app`, `crm`, …), readable off `/api/filters`.
 Two limits. The split lives in the **snapshot**: the unsynced live-SQL fallback
 queries `phase2poc_demand_supply` on its own and does not carry it, so the panel
 and chip are hidden there. And the **FO App bids** tab is already filtered to
-`inventory_type = 'FO_APP'`, though its rows are still split by `source` like
-any other.
+FO App bids, though its rows are still split by `source` like any other.
+
+### How FO App bids are counted
+
+The bids snapshot matches the Metabase "FO App bids" question. Rows come from
+`phase2poc_demand_supply` where `original_source_bidding = 'FO_APP'`, windowed on
+`ds.created_at`. A bid counts as **placed** (converted) only when
+`is_placement_available` is true **and** the demand's status is
+`VEHICLE_PLACED_BY_FT` **and** the demand's `lsp` does not contain "call". All
+FO App rows are kept so the funnel has a denominator; only the placed rule decides
+`isConverted`. `phase2poc_trip_location_mapping_static` is left-joined, once per
+bid, for the FO name and call source.
 
 
 \* Same rule as demand: `status` is required unless `convertedAt` is mapped.

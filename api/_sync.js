@@ -235,8 +235,16 @@ ORDER BY d.created_at DESC, ds.id DESC
 LIMIT ${limit}`;
 }
 
-// FO App bids: TLMS BID + FO_APP → demand_supply (reference_id) → demand.
+// FO App bids: demand_supply rows bid through the FO app, joined to demand.
 // Shape matches inventory rows so engine aging / reasons / summary reuse.
+//
+// Parity with the Metabase "FO App bids" question: it starts from demand_supply
+// (not TLMS), windows on ds.created_at, keeps original_source_bidding = FO_APP,
+// and counts a bid as placed only when is_placement_available is true AND the
+// demand is VEHICLE_PLACED_BY_FT AND the demand's lsp does not contain "call".
+// Every row is kept, so the funnel still has its denominator; only isConverted
+// follows the placed rule. TLMS is a LEFT JOIN used for fo_name / call source,
+// deduplicated so it can never multiply the demand_supply rows.
 function bidsQuery(from, to, limit) {
   const s = S.getSchema();
   const q = (...parts) => parts.filter(Boolean).map(p => '`' + p + '`').join('.');
@@ -244,16 +252,26 @@ function bidsQuery(from, to, limit) {
   const ds = q(s.catalog, s.schema, 'phase2poc_demand_supply');
   const demand = q(s.catalog, s.schema, 'phase2poc_demand');
   const clusters = q(s.catalog, s.schema, 'phase2poc_ftn_clusters');
-  const bidTs = 'coalesce(ds.bid_placed_at, mb.created_at)';
+  const bidTs = 'coalesce(ds.bid_placed_at, ds.created_at)';
+  const boolTrue = (expr) =>
+    `lower(trim(cast(${expr} AS string))) IN ('true', '1', 't', 'yes', 'y')`;
+  const placed = `(${boolTrue('ds.is_placement_available')}
+    AND upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT'
+    AND lower(coalesce(d.lsp, '')) NOT LIKE '%call%')`;
+  const tlmsBid = `(SELECT * FROM ${mb}
+    WHERE upper(trim(coalesce(entry_type, ''))) = 'BID'
+      AND upper(trim(coalesce(inventory_type, ''))) = 'FO_APP'
+      AND reference_id IS NOT NULL
+    QUALIFY row_number() OVER (PARTITION BY reference_id ORDER BY created_at DESC, id DESC) = 1)`;
 
   return `SELECT
-  cast(mb.id AS string) AS id,
-  cast(${bidTs} AS string) AS createdAt,
-  date_format(${bidTs}, 'yyyy-MM-dd') AS createdDate,
+  cast(ds.id AS string) AS id,
+  cast(ds.created_at AS string) AS createdAt,
+  date_format(ds.created_at, 'yyyy-MM-dd') AS createdDate,
   cast(NULL AS string) AS availableFrom,
   cast(NULL AS string) AS availableTill,
   CASE
-    WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT'
+    WHEN ${placed}
       THEN cast(coalesce(d.vehicle_placed_ft_timestamp, ${bidTs}) AS string)
     ELSE NULL
   END AS convertedAt,
@@ -274,7 +292,7 @@ function bidsQuery(from, to, limit) {
     ELSE NULL
   END AS touchHours,
   CASE
-    WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT'
+    WHEN ${placed}
       THEN ${hoursBetween(bidTs, 'coalesce(d.vehicle_placed_ft_timestamp, ' + bidTs + ')')}
     ELSE NULL
   END AS ttcHours,
@@ -300,28 +318,28 @@ function bidsQuery(from, to, limit) {
       THEN cast(ds.updated_at AS string)
     ELSE NULL
   END AS callAt,
-  mb.fo_name AS lsp,
+  coalesce(mb.fo_name, ds.supplier_company_name) AS lsp,
   d.psa AS psa,
   coalesce(d.truck_type, mb.truck_type) AS vehicleType,
   cast(NULL AS double) AS capacityTons,
   1 AS quantity,
   cast(ds.rate_received AS double) AS askingPrice,
   CASE
-    WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT' THEN 'CONVERTED'
+    WHEN ${placed} THEN 'CONVERTED'
     WHEN ds.accepted_at IS NOT NULL THEN 'QUOTED'
     WHEN lower(trim(coalesce(ds.is_called, ''))) IN ('true', '1', 'yes', 'y') THEN 'CALLED'
     ELSE 'POSTED'
   END AS stage,
   ds.demand_id AS matchedDemandId,
   CASE
-    WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT' THEN 'CONVERTED'
+    WHEN ${placed} THEN 'CONVERTED'
     WHEN ds.accepted_at IS NOT NULL THEN 'QUOTED'
     WHEN lower(trim(coalesce(ds.is_called, ''))) IN ('true', '1', 'yes', 'y') THEN 'CALLED'
     ELSE 'POSTED'
   END AS status,
-  CASE WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT' THEN true ELSE false END AS isConverted,
+  CASE WHEN ${placed} THEN true ELSE false END AS isConverted,
   CASE
-    WHEN upper(trim(coalesce(d.status, ''))) = 'VEHICLE_PLACED_BY_FT' THEN NULL
+    WHEN ${placed} THEN NULL
     ELSE coalesce(
       nullif(trim(ds.acceptance_comment), ''),
       nullif(trim(ds.comment), ''),
@@ -338,21 +356,20 @@ function bidsQuery(from, to, limit) {
     ELSE 'Non power lane'
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
-  lower(trim(coalesce(mb.inventory_type, ''))) AS inventoryType,
+  coalesce(lower(trim(mb.inventory_type)), 'fo_app') AS inventoryType,
   ${bidsCallSourceSql('mb')} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
-FROM ${mb} mb
-INNER JOIN ${ds} ds
-  ON ds.id = mb.reference_id
+FROM ${ds} ds
 LEFT JOIN ${demand} d
   ON d.id = ds.demand_id
-WHERE mb.created_at IS NOT NULL
-  AND to_date(mb.created_at) >= to_date(:p0)
-  AND to_date(mb.created_at) <= to_date(:p1)
-  AND upper(trim(coalesce(mb.entry_type, ''))) = 'BID'
-  AND upper(trim(coalesce(mb.inventory_type, ''))) = 'FO_APP'
-ORDER BY ${bidTs} DESC
+LEFT JOIN ${tlmsBid} mb
+  ON mb.reference_id = ds.id
+WHERE ds.created_at IS NOT NULL
+  AND to_date(ds.created_at) >= to_date(:p0)
+  AND to_date(ds.created_at) <= to_date(:p1)
+  AND upper(trim(coalesce(ds.original_source_bidding, ''))) = 'FO_APP'
+ORDER BY ds.created_at DESC, ds.id DESC
 LIMIT ${limit}`;
 }
 
@@ -473,4 +490,4 @@ async function runSync(opts = {}) {
   return meta;
 }
 
-module.exports = { runSync, windowFor, DEFAULT_DAYS, MAX_ROWS };
+module.exports = { runSync, windowFor, bidsQuery, DEFAULT_DAYS, MAX_ROWS };

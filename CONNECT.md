@@ -6,8 +6,8 @@ the table mapping are missing.
 | Already configured | Value |
 |---|---|
 | Server hostname | `dbc-a52503fa-6486.cloud.databricks.com` |
-| SQL warehouse | `123f8c6553d1967b` (`cm_warehouse`) |
-| HTTP path | `/sql/1.0/warehouses/123f8c6553d1967b` |
+| SQL warehouse | `aa3d5e33b93f4574` (`Metabase Reader Dev`) |
+| HTTP path | `/sql/1.0/warehouses/aa3d5e33b93f4574` |
 
 ---
 

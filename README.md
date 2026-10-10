@@ -47,7 +47,7 @@ the engineering hub at the repository root.
 |---|---|---|
 | `DATABRICKS_TOKEN` | live data | Personal access token, or a service-principal token. **Grant it `SELECT` only.** |
 | `DATABRICKS_HOST` | live data | Defaults to `dbc-a52503fa-6486.cloud.databricks.com` |
-| `DATABRICKS_WAREHOUSE_ID` | live data | Defaults to `123f8c6553d1967b`. The full HTTP path (`/sql/1.0/warehouses/…`) is accepted too. |
+| `DATABRICKS_WAREHOUSE_ID` | live data | Defaults to `aa3d5e33b93f4574`. The full HTTP path (`/sql/1.0/warehouses/…`) is accepted too. |
 | `BASIC_AUTH_USER` | site lock | Shared username for HTTP Basic Auth. When set with `BASIC_AUTH_PASSWORD`, the browser prompts before any page or API. |
 | `BASIC_AUTH_PASSWORD` | site lock | Shared password. Prefer a long random value. |
 | `SESSION_SECRET` | sign-in | Any long random string. `openssl rand -base64 32` |
