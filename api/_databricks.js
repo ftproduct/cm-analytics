@@ -6,7 +6,7 @@
 //
 // Env vars (set in Vercel -> Project -> Settings -> Environment Variables):
 //   DATABRICKS_HOST              dbc-a52503fa-6486.cloud.databricks.com
-//   DATABRICKS_WAREHOUSE_ID      123f8c6553d1967b  (last segment of the HTTP path)
+//   DATABRICKS_WAREHOUSE_ID      aa3d5e33b93f4574  (last segment of the HTTP path)
 //   DATABRICKS_TOKEN             dapi...           (personal access token — optional)
 //   DATABRICKS_CLIENT_ID         service-principal OAuth client id (optional)
 //   DATABRICKS_CLIENT_SECRET     service-principal OAuth secret (optional)
@@ -16,7 +16,7 @@
 // browser sends is ever concatenated into SQL.
 
 const DEFAULT_HOST = 'dbc-a52503fa-6486.cloud.databricks.com';
-const DEFAULT_WAREHOUSE = '123f8c6553d1967b';
+const DEFAULT_WAREHOUSE = 'aa3d5e33b93f4574';
 const MAX_POLL_MS = 55000;      // stay inside the Vercel function timeout
 const POLL_INTERVAL_MS = 900;
 const TOKEN_REFRESH_SKEW_MS = 60_000;

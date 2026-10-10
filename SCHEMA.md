@@ -14,7 +14,7 @@ To change the mapping without a redeploy, put the whole JSON document in the
 
 Signed-in admins can do all of this from the **Setup** tab's SQL console. Outside
 the app, run these in a Databricks SQL editor against warehouse
-`123f8c6553d1967b`.
+`aa3d5e33b93f4574`.
 
 ```sql
 -- 1. Which catalogs and schemas exist
