@@ -58,6 +58,8 @@ function challenge(res) {
 // Allow cron / health probes through without the site password.
 function isExempt(req, pathname) {
   if (pathname === '/api/health') return true;
+  // MCP clients send a Bearer key, not Basic credentials; api/mcp.js verifies it.
+  if (pathname === '/api/mcp' && /^Bearer\s+\S+/i.test(req.headers?.authorization || '')) return true;
   if (pathname === '/api/sync') {
     const header = req.headers?.authorization || '';
     const secret = process.env.CRON_SECRET;

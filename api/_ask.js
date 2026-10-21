@@ -17,6 +17,7 @@
 // however many the snapshot would be.
 
 const llm = require('./_llm.js');
+const mcpTools = require('./_mcp_tools.js');
 const source = require('./_source.js');
 const S = require('./_schema.js');
 const { KINDS, FILTER_KEYS, sanitiseSpecWithOwnWindow, unknownFilterKeys } = require('./_specs.js');
@@ -48,6 +49,23 @@ const KIND_NOTES = {
   invMatchDemandRows: 'individual demands with their inventory matches',
   supercluster: 'origin-supercluster leaderboards: bot demands actioned by a PSA, matched demands called, bids called, best/worst call time for bids'
 };
+
+// The live API tools, described from the same registry the MCP server serves.
+// Empty when no service credential is set, so the planner cannot pick a tool
+// that would only fail.
+function toolsCard() {
+  if (!mcpTools.isConfigured()) return '';
+  const lines = mcpTools.list().map(t => {
+    const args = Object.entries(t.params).map(([k, p]) => `${k}${p.required ? '*' : ''}`).join(', ');
+    return `  ${t.name}(${args}) — ${t.description}`;
+  });
+  return `
+Live tools — read-only calls for FO tickets and FO advance payments, which the cached metrics do not hold (* = required):
+${lines.join('\n')}
+To use one, reply {"intent":"<short phrase>","tool":{"name":"get_support_ticket","args":{"ticket_number":"1234"}}}.
+Never guess an id, FTEID or ticket number. If a required argument is not in the question or the conversation, reply with a clarify asking for it.
+`;
+}
 
 function assertCardCoversKinds() {
   const missing = [...KINDS].filter(k => !KIND_NOTES[k]);
@@ -85,7 +103,7 @@ function capabilityCard({ today, window, options = {}, mode }) {
     .filter(Boolean)
     .join('\n');
 
-  return `You turn questions about a freight marketplace into metric specs. You never see the data; an engine runs your specs and another step writes the answer.
+  return `You turn questions about a freight marketplace into metric specs${mcpTools.isConfigured() ? ' or live API calls' : ''}. You never see the data; an engine runs your specs and another step writes the answer.
 
 Today is ${today}. The cached data covers ${window.from || 'an unknown start'} to ${window.to || 'an unknown end'}${mode === 'demo' ? ' (generated demo data)' : ''}${window.truncated ? '. That sync hit its row limit, so nothing before that start date exists — never plan a window that begins earlier' : ''}.
 
@@ -105,6 +123,7 @@ ${sampleFilters || '  (no filter values loaded)'}
   outcome: "success" (fulfilled only) | "fail" (unfulfilled only) | "all"
   from / to: YYYY-MM-DD. Always set both. Clamp to the covered window above.
 
+${toolsCard()}
 Reply with JSON only, no prose:
   {"intent":"<what you are measuring, one short phrase>",
    "specs":[{"id":"a","entity":"demand","kind":"group","groupBy":"lsp","limit":5,
@@ -148,6 +167,13 @@ async function plan(question, ctx, history = []) {
 function validatePlan(parsed, fallbackFilters) {
   if (parsed && typeof parsed.clarify === 'string' && parsed.clarify.trim()) {
     return { clarify: parsed.clarify.trim().slice(0, 300) };
+  }
+  if (parsed && parsed.tool) {
+    if (!mcpTools.isConfigured()) throw new Error('No live tools are available. Reply with {"specs":[...]} or {"clarify":"..."}.');
+    const tool = mcpTools.get(parsed.tool.name);
+    if (!tool) throw new Error(`"${parsed.tool.name}" is not a tool. Use only the tools listed.`);
+    const args = mcpTools.validateArgs(tool, parsed.tool.args || {});
+    return { tool: { name: tool.name, args }, intent: typeof parsed.intent === 'string' ? parsed.intent.slice(0, 200) : '' };
   }
   const raw = Array.isArray(parsed?.specs) ? parsed.specs.slice(0, MAX_PLAN_SPECS) : [];
   if (!raw.length) throw new Error('No specs returned. Reply with {"specs":[...]} or {"clarify":"..."}.');
@@ -247,13 +273,15 @@ Rules:
   - No preamble, no bullet points, no markdown headings, no offers to help further.`;
 
 async function phrase({ question, intent, specs, resultsJson, mode }) {
+  const windowLine = specs.length
+    ? `Window: ${specs[0]?.filters?.from || '?'} to ${specs[0]?.filters?.to || '?'}${mode === 'demo' ? ' (demo data)' : ''}\n`
+    : '';
   const messages = [
     { role: 'system', content: PHRASE_SYSTEM },
     {
       role: 'user',
       content: `Question: ${question}
-${intent ? `Measuring: ${intent}\n` : ''}Window: ${specs[0]?.filters?.from || '?'} to ${specs[0]?.filters?.to || '?'}${mode === 'demo' ? ' (demo data)' : ''}
-Data: ${resultsJson}`
+${intent ? `Measuring: ${intent}\n` : ''}${windowLine}Data: ${resultsJson}`
     }
   ];
   const { text } = await llm.chat({ messages, maxTokens: 250, temperature: 0 });
@@ -323,6 +351,31 @@ async function ask({ question, filters = {}, history = [] }) {
 
   if (planned.clarify) {
     return { answer: planned.clarify, clarify: true, specs: [], data: null, mode: src.mode, tookMs: Date.now() - startedAt };
+  }
+
+  if (planned.tool) {
+    let data;
+    try {
+      ({ data } = await mcpTools.call(planned.tool.name, planned.tool.args));
+    } catch (e) {
+      throw Object.assign(new Error(e.message), { status: 502 });
+    }
+    const answer = await phrase({
+      question,
+      intent: planned.intent,
+      specs: [],
+      resultsJson: shrinkResults({ [planned.tool.name]: data }),
+      mode: src.mode
+    });
+    return {
+      answer,
+      intent: planned.intent,
+      specs: [],
+      tool: planned.tool,
+      data: { [planned.tool.name]: data },
+      mode: src.mode,
+      tookMs: Date.now() - startedAt
+    };
   }
 
   const results = await execute(src, planned.specs);

@@ -147,6 +147,14 @@
       wrap.appendChild(h('p', { class: 'chat-flag', text: 'Demo data — not your warehouse.' }));
     }
 
+    if (payload.tool) {
+      wrap.appendChild(h('details', { class: 'chat-details' },
+        h('summary', { text: 'Show the records' }),
+        numbersTable(payload.data),
+        h('pre', { class: 'chat-spec', text: JSON.stringify(payload.tool, null, 2) })
+      ));
+    }
+
     const spec = payload.specs?.[0];
     if (spec) {
       const table = numbersTable(payload.data);

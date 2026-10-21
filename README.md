@@ -61,6 +61,9 @@ the engineering hub at the repository root.
 | `LLM_API_KEY` | the assistant | The gateway's virtual key |
 | `LLM_MODEL` | the assistant | Whatever name the gateway routes on, e.g. `claude-haiku-4-5` |
 | `LLM_TIMEOUT_MS` | optional | Per-call timeout. Default `20000`. |
+| `FT_API_TOKEN` | MCP server, assistant tools | Service credential for the Freight Tiger APIs (FO tickets, FO advance payments). Without it the MCP tools fail and the assistant does not offer them. |
+| `FT_API_BASE` | optional | Defaults to `https://api.freighttiger.com/api`. Point it at the QA gateway (`https://qa-api.freighttiger.com/qa`) to try it against QA. |
+| `MCP_API_KEY` | MCP over HTTP | Bearer key for MCP clients calling `POST /api/mcp`. Without it only signed-in dashboard sessions can. |
 | `MA_SYNC_DAYS` | optional | How many days each sync pulls. Default `180`. |
 | `MA_SYNC_MAX_ROWS` | optional | Row ceiling per entity per sync. Default `200000`. |
 | `MA_SNAPSHOT_CHUNK_CHARS` | optional | Characters per KV chunk. Default `480000`, sized for a 1 MB request limit. |
@@ -81,6 +84,34 @@ and cron `POST /api/sync` with `Authorization: Bearer <CRON_SECRET>` are exempt.
 is reachable but OAuth has not been configured, the API refuses to serve rather
 than exposing the warehouse — so the open demo can never quietly become an open
 production dashboard.
+
+---
+
+## MCP server
+
+Read-only tools over the Freight Tiger GET APIs, so an assistant can answer
+questions about FO support tickets and FO advance payments, which the Databricks
+snapshot does not hold. They are listed in `api/_mcp_tools.js`; adding an entry
+there exposes it over HTTP, over stdio and to the dashboard assistant.
+
+| Tool | Answers |
+|---|---|
+| `list_support_tickets`, `support_tickets_summary`, `get_support_ticket`, `support_configuration` | FO tickets for a company, counts, one ticket's conversation |
+| `fo_advance_queue`, `fo_advance_queue_summary`, `fo_advance_approvals` | FO advance-payment queue and approval history |
+
+- **Over HTTP:** `POST /api/mcp` with `Authorization: Bearer <MCP_API_KEY>`, or a
+  signed-in session. A deployment with no sign-in configured refuses, because the
+  tools read every company's data through one credential.
+- **Over stdio** (Claude Desktop and similar): `npm run mcp`, with `FT_API_TOKEN` in
+  the client's `env`.
+- **In the Ask bot:** with `FT_API_TOKEN` set, the planner can pick a tool as well as
+  a metric. It asks for the company FTEID or ticket number rather than guessing one.
+- Phone numbers, emails and anything token-shaped are redacted before a result
+  leaves the server.
+
+The parameters were read from the calls the production apps make, not from a
+published spec. Check them against `ib-phase2-poc-service` before relying on a
+filter.
 
 ---
 

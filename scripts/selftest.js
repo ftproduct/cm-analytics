@@ -903,6 +903,129 @@ async function assistantChecks() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// MCP server. The tools read through a service credential, so the checks
+// cover what they must never do: send an argument the registry did not declare,
+// leak contact details, or run without a credential. The upstream API is a
+// stub -- no network, no token.
+// ---------------------------------------------------------------------------
+async function mcpChecks() {
+  console.log('\nmcp');
+  const mcp = require('../api/_mcp.js');
+  const mt = require('../api/_mcp_tools.js');
+  const askMod = require('../api/_ask.js');
+  const saved = { token: process.env.FT_API_TOKEN, base: process.env.FT_API_BASE };
+  const rpc = (method, params, id = 1) => mcp.handle({ jsonrpc: '2.0', id, method, params });
+
+  try {
+    delete process.env.FT_API_TOKEN;
+    process.env.FT_API_BASE = 'https://api.test/api';
+
+    const init = await rpc('initialize', { protocolVersion: '2025-03-26' });
+    check('initialize negotiates a version and advertises tools', () => {
+      assert.strictEqual(init.result.protocolVersion, '2025-03-26');
+      assert.ok(init.result.capabilities.tools);
+    });
+    const notified = await mcp.handle({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const unknownMethod = await rpc('nope');
+    check('a notification gets no reply and an unknown method is an error', () => {
+      assert.strictEqual(notified, null);
+      assert.strictEqual(unknownMethod.error.code, mcp.ERR.method);
+    });
+
+    const listed = (await rpc('tools/list')).result.tools;
+    check('every tool is read-only and has an object schema that declares its required args', () => {
+      assert.ok(listed.length >= 7);
+      for (const t of listed) {
+        assert.strictEqual(t.annotations.readOnlyHint, true, t.name);
+        assert.strictEqual(t.inputSchema.type, 'object');
+        assert.strictEqual(t.inputSchema.additionalProperties, false);
+      }
+      const tickets = listed.find(t => t.name === 'list_support_tickets');
+      assert.deepStrictEqual(tickets.inputSchema.required.sort(), ['company_fteid', 'status']);
+    });
+    check('every registry path is a GET path under /phase-2', () => {
+      for (const t of mt.TOOLS) assert.ok(t.path.startsWith('/phase-2/'), t.name);
+    });
+
+    const tickets = mt.get('list_support_tickets');
+    check('arguments are validated against the declaration', () => {
+      assert.throws(() => mt.validateArgs(tickets, { status: 'open' }), /company_fteid is required/);
+      assert.throws(() => mt.validateArgs(tickets, { company_fteid: 'c', status: 'open', sort: 'x' }), /Unknown argument: sort/);
+      assert.throws(() => mt.validateArgs(tickets, { company_fteid: 'c', status: 'open', size: 500 }), /at most 50/);
+      assert.throws(() => mt.validateArgs(mt.get('fo_advance_approvals'), {}), /Give one of/);
+      const ok = mt.validateArgs(tickets, { company_fteid: 'c', status: 'open' });
+      assert.strictEqual(ok.page, 0);
+      assert.strictEqual(ok.size, 10);
+    });
+    check('path arguments are encoded and query arguments serialised', () => {
+      const url = mt.buildUrl(mt.get('get_support_ticket'), { ticket_number: '12/3 4' });
+      assert.strictEqual(url, 'https://api.test/api/phase-2/fo-app/support/tickets/pylon/12%2F3%204');
+      const q = mt.buildUrl(tickets, mt.validateArgs(tickets, { company_fteid: 'c1', status: 'open' }));
+      assert.ok(q.endsWith('/phase-2/fo-app/support/tickets?company_fteid=c1&status=open&page=0&size=10'), q);
+    });
+
+    check('contact details and credentials are redacted at any depth', () => {
+      const out = mt.redact({ id: 1, requester: { name: 'A', phone: '999', email_id: 'a@b' }, msgs: [{ text: 'hi', auth_token: 't' }] });
+      assert.strictEqual(out.requester.phone, '[redacted]');
+      assert.strictEqual(out.requester.email_id, '[redacted]');
+      assert.strictEqual(out.msgs[0].auth_token, '[redacted]');
+      assert.strictEqual(out.requester.name, 'A');
+    });
+
+    const noCred = await rpc('tools/call', { name: 'support_tickets_summary', arguments: { company_fteid: 'c1' } });
+    check('without a credential a call is a tool error, not a request', () => {
+      assert.strictEqual(noCred.result.isError, true);
+      assert.ok(/FT_API_TOKEN/.test(noCred.result.content[0].text));
+    });
+    const unknownTool = await rpc('tools/call', { name: 'delete_everything' });
+    check('an unknown tool is a protocol error', () => {
+      assert.strictEqual(unknownTool.error.code, mcp.ERR.params);
+    });
+
+    process.env.FT_API_TOKEN = 'svc-token';
+    let seen;
+    const stub = async (url, init) => {
+      seen = { url, init };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'T1', status: 'open', contact_number: '98' }] }) };
+    };
+    const live = await mcp.handle({ jsonrpc: '2.0', id: 9, method: 'tools/call',
+      params: { name: 'list_support_tickets', arguments: { company_fteid: 'c1', status: 'open' } } }, { fetchImpl: stub });
+    check('a call sends the service credential on a GET and returns redacted JSON', () => {
+      assert.strictEqual(seen.init.method, 'GET');
+      assert.strictEqual(seen.init.headers.token, 'svc-token');
+      assert.strictEqual(seen.init.headers.Authorization, 'Bearer svc-token');
+      const body = JSON.parse(live.result.content[0].text);
+      assert.strictEqual(body.data[0].id, 'T1');
+      assert.strictEqual(body.data[0].contact_number, '[redacted]');
+    });
+    const refused = await mcp.handle({ jsonrpc: '2.0', id: 10, method: 'tools/call',
+      params: { name: 'support_tickets_summary', arguments: { company_fteid: 'c1' } } },
+      { fetchImpl: async () => ({ ok: false, status: 403, text: async () => 'forbidden' }) });
+    check('an upstream refusal comes back as a readable tool error', () => {
+      assert.strictEqual(refused.result.isError, true);
+      assert.ok(/403/.test(refused.result.content[0].text));
+    });
+
+    check('the Ask bot offers the tools only when a credential is set, and validates what it picks', () => {
+      const ctx = { today: '2026-10-21', window: { from: '2026-06-01', to: '2026-09-17' }, options: {}, mode: 'demo' };
+      assert.ok(askMod.capabilityCard(ctx).includes('get_support_ticket('));
+      const planned = askMod.validatePlan({ intent: 'one ticket', tool: { name: 'get_support_ticket', args: { ticket_number: '77' } } }, {});
+      assert.deepStrictEqual(planned.tool, { name: 'get_support_ticket', args: { ticket_number: '77' } });
+      assert.throws(() => askMod.validatePlan({ tool: { name: 'drop_table', args: {} } }, {}), /not a tool/);
+      assert.throws(() => askMod.validatePlan({ tool: { name: 'list_support_tickets', args: { status: 'open' } } }, {}), /company_fteid is required/);
+      delete process.env.FT_API_TOKEN;
+      assert.ok(!askMod.capabilityCard(ctx).includes('get_support_ticket('));
+      assert.throws(() => askMod.validatePlan({ tool: { name: 'get_support_ticket', args: { ticket_number: '77' } } }, {}), /No live tools/);
+    });
+  } finally {
+    for (const [k, v] of [['FT_API_TOKEN', saved.token], ['FT_API_BASE', saved.base]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+
 assistantChecks()
+  .then(mcpChecks)
   .then(snapshotChecks)
   .catch(e => { console.error('\n' + e.stack); process.exit(1); });

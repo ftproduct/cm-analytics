@@ -2,8 +2,9 @@
 // pages and API). Enabled only when BASIC_AUTH_USER and BASIC_AUTH_PASSWORD
 // are both set in the project environment.
 //
-// Exempt: /api/health (probes) and /api/sync with Authorization: Bearer
-// <CRON_SECRET> (schedulers).
+// Exempt: /api/health (probes), /api/sync with Authorization: Bearer
+// <CRON_SECRET> (schedulers), and /api/mcp with any Bearer token (MCP clients;
+// the handler checks it against MCP_API_KEY itself).
 
 export const config = {
   matcher: '/:path*'
@@ -56,6 +57,8 @@ export default function middleware(request) {
   const auth = request.headers.get('authorization') || '';
 
   if (pathname === '/api/health') return;
+
+  if (pathname === '/api/mcp' && /^Bearer\s+\S+/i.test(auth)) return;
 
   if (pathname === '/api/sync') {
     const secret = process.env.CRON_SECRET;
