@@ -41,11 +41,12 @@ const KIND_NOTES = {
   movers:      'which groups moved most versus the previous period (needs groupBy)',
   leakage:     'lanes where demand went unfulfilled while inventory sat unconverted',
   imbalance:   'lanes where demand and supply are most out of balance',
-  officeHours: 'volume and fill rate by hour of day and working vs non-working hours',
+  officeHours: 'volume and fill rate by two-hour creation slot (9–11am … 5–7pm) and after 7pm',
   rows:        'individual records — use only when someone asks for examples, never for a count',
   invMatch:    'inventory match funnel between demand and inventory',
   invMatchGroup: 'inventory match rates broken down by one dimension (needs groupBy)',
   invMatchDemandRows: 'individual demands with their inventory matches',
+  invCallDetail: 'split of call answers and call notes on called inventory matches, with how many reached vehicle available',
   supercluster: 'origin-supercluster leaderboards: bot demands actioned by a PSA, matched demands called, bids called, best/worst call time for bids'
 };
 

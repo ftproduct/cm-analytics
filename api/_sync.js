@@ -210,6 +210,7 @@ function inventoryQuery(from, to, limit) {
   ${boolTrue('ds.is_placement_available')} AS isPlacementAvailable,
   cast(ds.inventory_id AS string) AS inventoryId,
   ds.call_notes AS callNotes,
+  ds.call_answer AS callAnswer,
   CASE
     WHEN d.is_liquid_lane IS NULL THEN NULL
     WHEN lower(trim(cast(d.is_liquid_lane AS string))) IN ('true', '1', 't', 'yes', 'y')

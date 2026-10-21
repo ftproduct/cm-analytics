@@ -481,7 +481,8 @@
   }
 
   // ---------------------------------------------------------------------
-  // Lane x period heatmap — red (0%) → green (100%).
+  // Lane x period heatmap — red (0%) → green (opts.scaleMax, default 100%).
+  // A rate at or above scaleMax takes the top colour.
   // ---------------------------------------------------------------------
   function heatmapGrid(host, data, opts = {}) {
     if (!data || !data.keys?.length || !data.periods?.length) {
@@ -501,11 +502,12 @@
     const byKey = new Map(data.cells.map(c => [c.key + '|' + c.period, c]));
     const svg = svgRoot(host, width, height);
 
+    const scaleMax = opts.scaleMax || 100;
     // Diverging ramp: step index rises with fill/conversion rate.
     const steps = ['var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)', 'var(--seq-6)'];
     const stepFor = rate => {
       if (rate === null || rate === undefined) return null;
-      const i = Math.min(steps.length - 1, Math.floor((rate / 100) * steps.length));
+      const i = Math.min(steps.length - 1, Math.floor((rate / scaleMax) * steps.length));
       return steps[i];
     };
 
@@ -548,7 +550,7 @@
     scaleHost.innerHTML =
       `<div class="ramp-legend"><span>0%</span>` +
       steps.map(c => `<i style="--k:${c}"></i>`).join('') +
-      `<span>100%</span><span class="ramp-caption">${opts.rateLabel || 'Fill rate'}</span></div>`;
+      `<span>${scaleMax}%${scaleMax < 100 ? '+' : ''}</span><span class="ramp-caption">${opts.rateLabel || 'Fill rate'}</span></div>`;
   }
 
   // ---------------------------------------------------------------------

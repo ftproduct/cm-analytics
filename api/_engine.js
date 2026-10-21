@@ -23,6 +23,15 @@ const AGING_BUCKETS = [
   { key: '7d+',   min: 168, max: Infinity }
 ];
 
+// FO App bids are acted on within minutes or not at all, so they get a finer
+// ladder than the inventory one above. Bounds are in hours (touchHours).
+const BID_ACT_BUCKETS = [
+  { key: '0–30 min',    min: 0,   max: 0.5 },
+  { key: '30 min–1 hr', min: 0.5, max: 1 },
+  { key: '1–2 hr',      min: 1,   max: 2 },
+  { key: '>2 hr',       min: 2,   max: Infinity }
+];
+
 // A rate change is only comparable when both windows carry enough volume.
 const MOVER_MIN_VOLUME = 12;
 
@@ -74,7 +83,16 @@ function ensureDerivedFields(rows) {
 
 // Demand creation slots in India wall-clock (IST). Databricks timestamps are
 // treated as IST wall time when they carry no offset; otherwise converted.
-const OFFICE_HOURS_ORDER = ['9am–1pm', '1pm–7pm', 'After office hours'];
+// Two-hour slots through the working day. Everything from 7pm onwards, plus the
+// small hours before 9am, falls in the last slot.
+const OFFICE_HOURS_ORDER = ['9–11am', '11am–1pm', '1–3pm', '3–5pm', '5–7pm', '>7pm'];
+const OFFICE_HOURS_SLOTS = [
+  { key: '9–11am', from: 9, to: 11 },
+  { key: '11am–1pm', from: 11, to: 13 },
+  { key: '1–3pm', from: 13, to: 15 },
+  { key: '3–5pm', from: 15, to: 17 },
+  { key: '5–7pm', from: 17, to: 19 }
+];
 
 function createdHourIst(createdAt) {
   if (createdAt == null || createdAt === '') return null;
@@ -95,10 +113,9 @@ function createdHourIst(createdAt) {
 
 function officeHoursBucket(createdAt) {
   const h = createdHourIst(createdAt);
-  if (h == null) return 'After office hours';
-  if (h >= 9 && h < 13) return '9am–1pm';
-  if (h >= 13 && h < 19) return '1pm–7pm';
-  return 'After office hours';
+  if (h == null) return '>7pm';
+  const slot = OFFICE_HOURS_SLOTS.find(s => h >= s.from && h < s.to);
+  return slot ? slot.key : '>7pm';
 }
 
 function officeHoursSplit(rows, entity) {
@@ -492,6 +509,47 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
   return limit ? out.slice(0, limit) : out;
 }
 
+// Split of what happened on the calls: call_answer and call_notes from
+// demand_supply, over the matches that were called. Each value also carries how
+// many of those calls ended with the vehicle available, so the split reads as
+// the called -> available step of the funnel. Notes are free text, so they are
+// grouped case-insensitively and the long tail is folded into "Other".
+function callDetail(rows, limit = 10) {
+  const called = rows.filter(r => r.isCalled);
+  const split = (field, blank) => {
+    const groups = new Map();
+    for (const r of called) {
+      const text = r[field] == null ? '' : String(r[field]).trim();
+      const label = text || blank;
+      const k = label.toLowerCase();
+      const g = groups.get(k) || { key: label, total: 0, vehicleAvailable: 0 };
+      g.total++;
+      if (r.isVehicleAvailable) g.vehicleAvailable++;
+      groups.set(k, g);
+    }
+    let list = [...groups.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+    if (limit && list.length > limit) {
+      const tail = list.slice(limit);
+      list = list.slice(0, limit);
+      list.push({
+        key: `Other (${tail.length} more)`,
+        total: tail.reduce((s, g) => s + g.total, 0),
+        vehicleAvailable: tail.reduce((s, g) => s + g.vehicleAvailable, 0)
+      });
+    }
+    return list.map(g => ({ ...g, share: pct(g.total, called.length), rate: pct(g.vehicleAvailable, g.total) }));
+  };
+  const out = {
+    called: called.length,
+    vehicleAvailable: called.filter(r => r.isVehicleAvailable).length,
+    notes: split('callNotes', 'No note')
+  };
+  // Snapshots synced before call_answer was pulled have no such column at all.
+  if (rows.some(r => 'callAnswer' in r)) out.answers = split('callAnswer', 'No answer');
+  else out.answers = [], out.answersUnavailable = 'Call answers are not in the synced snapshot yet. Press Sync to pull them.';
+  return out;
+}
+
 // Inventory funnel. Stages are monotonic: a row at CONFIRMED also passed QUOTED.
 // Unknown stages (e.g. WITHDRAWN) still count as having been posted (index 0).
 function funnel(rows, stages = FUNNEL_STAGES) {
@@ -674,8 +732,9 @@ function supercluster(demandRows, invRows, bidRows) {
   };
 }
 
-function aging(rows) {
-  const buckets = AGING_BUCKETS.map(b => ({ bucket: b.key, total: 0, converted: 0 }));
+function aging(rows, entity) {
+  const ladder = entity === 'bids' ? BID_ACT_BUCKETS : AGING_BUCKETS;
+  const buckets = ladder.map(b => ({ bucket: b.key, total: 0, converted: 0 }));
   const untouched = { bucket: 'Never touched', total: 0, converted: 0 };
   for (const r of rows) {
     if (r.touchHours == null) {
@@ -686,7 +745,7 @@ function aging(rows) {
     // Negative deltas mean the recorded "touch" predates the posting (joined
     // from demand-side activity). Treat as immediate (0h), never as 7d+.
     const hours = Math.max(0, Number(r.touchHours));
-    const i = AGING_BUCKETS.findIndex(b => hours >= b.min && hours < b.max);
+    const i = ladder.findIndex(b => hours >= b.min && hours < b.max);
     const slot = buckets[i < 0 ? buckets.length - 1 : i];
     slot.total++;
     if (r.isConverted) slot.converted++;
@@ -1014,8 +1073,10 @@ function runSpec(spec, dataset = null) {
         rows: invMatchDemandRows(rows, spec.matchType || 'Exact', limitOf(spec, 200)),
         totalMatched: rows.length
       };
+    case 'invCallDetail':
+      return callDetail(rows, limitOf(spec, 10));
     case 'aging':
-      return { rows: aging(rows) };
+      return { rows: aging(rows, entity) };
     case 'heatmap':
       return heatmap(rows, entity, spec.grain || 'week', limitOf(spec, 12));
     case 'movers': {
@@ -1058,5 +1119,5 @@ function runSpec(spec, dataset = null) {
 
 module.exports = {
   runSpec, filterOptions, shiftWindow, applyFilters, ensureDerivedFields,
-  AGING_BUCKETS, OFFICE_HOURS_ORDER, officeHoursBucket
+  AGING_BUCKETS, BID_ACT_BUCKETS, OFFICE_HOURS_ORDER, officeHoursBucket
 };
