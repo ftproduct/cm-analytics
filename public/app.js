@@ -422,12 +422,17 @@
   const LANE_SORT_MIN = 5;
   const LANE_DISPLAY = 10;
 
-  function sortLaneRows(rows, sort) {
+  // Direction of the "Ranked by fill rate" list on the overview: 'desc' shows
+  // the best lanes first, 'asc' the weakest. Kept across re-renders.
+  let laneRateOrder = 'desc';
+
+  function sortLaneRows(rows, sort, order = 'desc') {
     const list = [...(rows || [])];
     if (sort === 'rate') {
+      const dir = order === 'asc' ? -1 : 1;
       return list
         .filter(r => (r.total || 0) >= LANE_SORT_MIN)
-        .sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1) || b.total - a.total)
+        .sort((a, b) => dir * ((b.rate ?? -1) - (a.rate ?? -1)) || b.total - a.total)
         .slice(0, LANE_DISPLAY);
     }
     return list
@@ -437,10 +442,10 @@
 
   let overviewLanes = null;
 
-  function paintLaneSide(host, rows, title) {
+  function paintLaneSide(host, rows, title, controls = '') {
     if (!host) return;
     host.innerHTML =
-      `<div class="subpanel-head"><h4>${title}</h4></div>` +
+      `<div class="subpanel-head"><h4>${title}</h4>${controls}</div>` +
       `<div data-lane-chart></div>`;
     const chart = host.querySelector('[data-lane-chart]');
     Charts.rankedBars(chart, rows, {
@@ -454,14 +459,31 @@
 
   function paintOverviewLanes(host, payload) {
     const byDemand = sortLaneRows(payload?.rows, 'demand');
-    const byRate = sortLaneRows(payload?.rows, 'rate');
     host.innerHTML =
       `<div class="panel-grid lane-split">` +
         `<div class="col-6" data-lane-side="demand"></div>` +
         `<div class="col-6" data-lane-side="rate"></div>` +
       `</div>`;
     paintLaneSide(host.querySelector('[data-lane-side="demand"]'), byDemand, 'Ranked by demand');
-    paintLaneSide(host.querySelector('[data-lane-side="rate"]'), byRate, 'Ranked by fill rate');
+    paintLaneRateSide(host.querySelector('[data-lane-side="rate"]'), payload);
+  }
+
+  // The fill-rate side carries its own Descending / Ascending switch, so only
+  // this half is redrawn when it is pressed.
+  function paintLaneRateSide(side, payload) {
+    const controls =
+      `<div class="segmented" data-role="lane-order" role="group" aria-label="Fill rate order">` +
+      [['desc', 'High → low'], ['asc', 'Low → high']].map(([k, label]) =>
+        `<button type="button" data-order="${k}" aria-pressed="${laneRateOrder === k}">${label}</button>`).join('') +
+      `</div>`;
+    paintLaneSide(side, sortLaneRows(payload?.rows, 'rate', laneRateOrder), 'Ranked by fill rate', controls);
+    side.querySelectorAll('[data-role="lane-order"] button').forEach(b => {
+      b.addEventListener('click', () => {
+        if (laneRateOrder === b.dataset.order) return;
+        laneRateOrder = b.dataset.order;
+        paintLaneRateSide(side, payload);
+      });
+    });
   }
 
   // ------------------------------------------------------- Insight narrative
@@ -558,7 +580,7 @@
         ${panel('Power lane vs non power lane', 'Demand volume and fill rate split by liquid/power lane flag. Use the Lane type filter to lock the rest of the dashboard to one side.', { span: 4, body: 'laneTypeSplit', actions: csvButton('laneTypeSplit') })}
         ${panel('Bot vs manual demand', 'How the demand was raised: Bot = pushed through the integration API, Manual = created by a person in the CRM. Fill rate sits beside each so the two channels can be compared, not just counted. Click a bar to filter the dashboard to one channel.', { span: 4, body: 'sourceSplit', actions: csvButton('sourceSplit') })}
         ${panel('Demand vs fulfilment over time', 'Volume with the unfulfilled portion stacked on top, so the gap is visible rather than inferred.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Unfulfilled', 'var(--series-2)']]) })}
-        ${panel('Top supercluster lanes', 'Two rankings side by side. Each bar splits fulfilled (green) and unfulfilled (orange) — the green share is the fill rate. Label = demands · fill %. Tap a lane to filter.', {
+        ${panel('Top supercluster lanes', 'Two rankings side by side. Each bar splits fulfilled (green) and unfulfilled (orange) — the green share is the fill rate. Label = demands · fill %. Use the switch on the fill-rate list to order it high → low or low → high (lanes under 5 demands are left out of that list). Tap a lane to filter.', {
           span: 12,
           body: 'lanes',
           legend: legend([
