@@ -116,6 +116,11 @@ const UNFULFILMENT_REASONS = [
   { name: 'Compliance / documents pending',  w: 2 }
 ];
 
+// Picked by row number rather than the generator, so adding them leaves every
+// other demo number exactly where it was.
+const CALL_ANSWERS = ['Vehicle available', 'Not available', 'Call back later', 'Not reachable', 'Rate mismatch'];
+const CALL_NOTES = ['Truck free tomorrow', 'Asked for higher rate', 'Will confirm in 2 hours'];
+
 const NON_CONVERSION_REASONS = [
   { name: 'No matching demand on lane',      w: 26 },
   { name: 'Rate expectation too high',       w: 20 },
@@ -321,7 +326,8 @@ function build() {
         isVehicleAvailable,
         isPlacementAvailable,
         inventoryId: String(100000 + invSeq),
-        callNotes: isCalled && r() < 0.35 ? 'Demo call note' : null,
+        callNotes: isCalled && r() < 0.35 ? CALL_NOTES[invSeq % CALL_NOTES.length] : null,
+        callAnswer: isCalled ? CALL_ANSWERS[invSeq % CALL_ANSWERS.length] : null,
         inventoryType: r() < 0.62 ? 'fo_app' : 'crm',
         callSource: isCalled && r() < 0.61 ? 'AI called' : 'Manual',
         laneType: r() < 0.28 ? 'Power lane' : 'Non power lane',

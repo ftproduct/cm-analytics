@@ -412,6 +412,13 @@
       (r.medianLatencyHours != null ? `<br><span class="tip-muted">Median ${F.hours(r.medianLatencyHours)}</span>` : '');
   }
 
+  // Worst fill rate first, so the weakest segment is the first bar. Rows with
+  // no rate sink to the bottom; volume breaks ties.
+  function byFillAsc(rows) {
+    return [...(rows || [])].sort((a, b) =>
+      (a.rate ?? Infinity) - (b.rate ?? Infinity) || b.total - a.total);
+  }
+
   const LANE_SORT_MIN = 5;
   const LANE_DISPLAY = 10;
 
@@ -566,7 +573,7 @@
         })}
         ${panel('Supercluster lanes losing ground', 'Biggest fill-rate drops against the previous period of equal length. Lanes under 12 loads in either period are excluded as noise.', { span: 6, body: 'declining', actions: csvButton('declining') })}
         ${panel('Supercluster lanes gaining', 'The same comparison in the other direction — worth understanding and copying.', { span: 6, body: 'improving', actions: csvButton('improving') })}
-        ${panel('Created by time of day', 'Demands split by creation hour in IST: 9am–1pm, 1pm–7pm, and everything else as after office hours.', { span: 6, body: 'officeHours', actions: csvButton('officeHours') })}
+        ${panel('Created by time of day', 'Demands split by creation time in IST into two-hour slots: 9–11am, 11am–1pm, 1–3pm, 3–5pm, 5–7pm and >7pm (>7pm also holds anything created before 9am).', { span: 6, body: 'officeHours', actions: csvButton('officeHours') })}
         ${panel('Why demand went unfilled', 'Cancel code when captured; otherwise the demand status (lapsed, no vehicle, rate enquiry, …). Ranked by frequency with cumulative share on each bar.', { span: 6, body: 'reasons' })}
       </div>`;
     wireGrainToggles();
@@ -717,14 +724,14 @@
     $('#main').innerHTML = `
       <div class="tile-row" id="tiles"><div class="loading">Loading…</div></div>
       <div class="panel-grid">
-        ${panel('Zone overview', 'Demand by origin zone (North / South / East / West / Central), mapped from liquid-lane city / supercluster. Click to filter.', { span: 6, body: 'zones', actions: csvButton('zones') })}
+        ${panel('Zone overview', 'Demand by origin zone (North / South / East / West / Central), mapped from liquid-lane city / supercluster. Lowest fill rate first. Click to filter.', { span: 6, body: 'zones', actions: csvButton('zones') })}
         ${panel('Bot vs manual demand', 'How the demand was raised: Bot = pushed through the integration API, Manual = created by a person in the CRM. Fill rate sits beside each so the two channels can be compared, not just counted. Click a bar to filter the dashboard to one channel.', { span: 6, body: 'sourceSplit', actions: csvButton('sourceSplit') })}
         ${panel('Demand over time', 'Unfulfilled volume stacked above fulfilled.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Unfulfilled', 'var(--series-2)']]) })}
-        ${panel('Created by time of day', 'Demands split by creation hour in IST: 9am–1pm, 1pm–7pm, and everything else as after office hours. Fill rate sits beside each slot.', { span: 6, body: 'officeHours', actions: csvButton('officeHours') })}
+        ${panel('Created by time of day', 'Demands split by creation time in IST into two-hour slots: 9–11am, 11am–1pm, 1–3pm, 3–5pm, 5–7pm and >7pm (>7pm also holds anything created before 9am). Fill rate sits beside each slot.', { span: 6, body: 'officeHours', actions: csvButton('officeHours') })}
         ${panel('Unfulfilment reasons', 'Cancel code when present, else demand status. Frequency-ranked with cumulative share and value at risk.', { span: 6, body: 'reasons', actions: csvButton('reasons') })}
-        ${panel('Supercluster-wise demand', 'Click a bar to filter the whole dashboard to that origin→destination supercluster lane.', { span: 6, body: 'lanes', actions: csvButton('lanes') })}
-        ${panel('LSP-wise demand', 'Volume by carrier with the fill rate each one delivered. "Unknown" is demand that never reached a carrier — its size is itself a finding.', { span: 6, body: 'lsps', actions: csvButton('lsps') })}
-        ${panel('Fill rate by supercluster lane over time', 'Fill rate by supercluster lane and week. A row that fades across the grid is a lane going wrong.', { span: 12, body: 'heat' })}
+        ${panel('Supercluster-wise demand', 'Lowest fill rate first. Click a bar to filter the whole dashboard to that origin→destination supercluster lane.', { span: 6, body: 'lanes', actions: csvButton('lanes') })}
+        ${panel('LSP-wise demand', 'Volume by carrier with the fill rate each one delivered, lowest fill rate first. "Unknown" is demand that never reached a carrier — its size is itself a finding.', { span: 6, body: 'lsps', actions: csvButton('lsps') })}
+        ${panel('Fill rate by supercluster lane over time', 'Fill rate by supercluster lane and week. The scale runs 0–50%: anything at or above 50% is healthy and shows as the darkest cell. A row that fades across the grid is a lane going wrong.', { span: 12, body: 'heat' })}
         ${panel('Demand by vehicle type', 'Where the requirement sits, and whether that vehicle class is being served.', { span: 6, body: 'vehicles' })}
         ${panel('Demand by shipper', 'Account-level view — concentration here is a commercial risk as much as an ops one.', { span: 6, body: 'shippers', actions: csvButton('shippers') })}
       </div>`;
@@ -793,33 +800,33 @@
       { key: 'value', label: 'Value', align: 'right', format: F.money }
     ]);
 
-    fill('zones', R.zones, (host, p) => Charts.rankedBars(host, p.rows, {
+    fill('zones', R.zones, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
       onSelect: r => { State.filters.region = [r.key]; onFiltersChanged(); }
     }));
     wireCsv('zones', R.zones?.rows || [], groupCols('Zone'), 'demand-by-zone.csv');
 
-    fill('sourceSplit', R.sourceSplit, (host, p) => Charts.rankedBars(host, p.rows, {
+    fill('sourceSplit', R.sourceSplit, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
       onSelect: r => { State.filters.demandSource = [r.key]; onFiltersChanged(); }
     }));
     wireCsv('sourceSplit', R.sourceSplit?.rows || [], groupCols('Raised by'), 'bot-vs-manual-demand.csv');
 
-    fill('lanes', R.lanes, (host, p) => Charts.rankedBars(host, p.rows, {
+    fill('lanes', R.lanes, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
       onSelect: r => { State.filters.superClusterLane = [r.key]; onFiltersChanged(); }
     }));
     wireCsv('lanes', R.lanes?.rows || [], groupCols('Supercluster lane'), 'demand-by-supercluster-lane.csv');
 
-    fill('lsps', R.lsps, (host, p) => Charts.rankedBars(host, p.rows, {
+    fill('lsps', R.lsps, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
       onSelect: r => { State.filters.lsp = [r.key]; onFiltersChanged(); }
     }));
     wireCsv('lsps', R.lsps?.rows || [], groupCols('LSP'), 'demand-by-lsp.csv');
 
-    fill('heat', R.heat, (host, p) => Charts.heatmapGrid(host, p, { rateLabel: 'Fill rate' }));
-    fill('vehicles', R.vehicles, (host, p) => Charts.rankedBars(host, p.rows, { meta: rateMeta, tip: rateTip('demands', 'Fulfilled') }));
-    fill('shippers', R.shippers, (host, p) => Charts.rankedBars(host, p.rows, {
+    fill('heat', R.heat, (host, p) => Charts.heatmapGrid(host, p, { rateLabel: 'Fill rate', scaleMax: 50 }));
+    fill('vehicles', R.vehicles, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), { meta: rateMeta, tip: rateTip('demands', 'Fulfilled') }));
+    fill('shippers', R.shippers, (host, p) => Charts.rankedBars(host, byFillAsc(p.rows), {
       meta: rateMeta, tip: rateTip('demands', 'Fulfilled'),
       onSelect: r => { State.filters.shipper = [r.key]; onFiltersChanged(); }
     }));
@@ -877,6 +884,8 @@
         ${panel('Inventory matches over time', 'Match volume with demands that placed via inventory stacked as success.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Placed (match rows)', 'var(--series-1)'], ['Not placed', 'var(--series-2)']]) })}
         ${hasCallSource ? panel('AI called vs manual inventory', 'Whether the AI agent created this inventory by calling, or a person did. Placement rate sits beside each, so the two channels are compared on outcome rather than on volume. Click a bar to filter the dashboard to one channel.', { span: 6, body: 'callSplit', actions: csvButton('callSplit') }) : ''}
         ${panel('Why inventory matches did not place', 'Demand status / call answer when the match did not lead to FT placement.', { span: hasCallSource ? 6 : 12, body: 'reasons', actions: csvButton('reasons') })}
+        ${panel('Call answers', 'Of the inventory matches that were called, what the call answer was (demand_supply.call_answer), and how many of those calls ended with the vehicle available.', { span: 6, body: 'callAnswers', actions: csvButton('callAnswers') })}
+        ${panel('Call notes', 'Of the inventory matches that were called, the call notes recorded (demand_supply.call_notes), and how many of those calls ended with the vehicle available. The ten most common notes are shown, the rest folded into Other.', { span: 6, body: 'callNotes', actions: csvButton('callNotes') })}
         ${panel('Inventory — city wise', 'Demands matched with inventory, Exact vs Origin split, and funnel counts by origin city.', { span: 12, body: 'city', actions: csvButton('city') })}
         ${panel('Inventory — PSA wise', 'Same funnel by PSA (Demand_Bot_PSA excluded).', { span: 12, body: 'psa', actions: csvButton('psa') })}
         ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches. Call and availability detail inline.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
@@ -890,6 +899,7 @@
       { id: 'trend', entity: 'inventory', kind: 'timeseries', grain: State.grain },
       { id: 'reasons', entity: 'inventory', kind: 'reasons', limit: 12 },
       ...(hasCallSource ? [{ id: 'callSplit', entity: 'inventory', kind: 'group', groupBy: 'callSource', limit: 5 }] : []),
+      { id: 'callDetail', entity: 'inventory', kind: 'invCallDetail', limit: 10 },
       { id: 'city', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'originSuperCluster', limit: 30 },
       { id: 'psa', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'psa', limit: 40 },
       { id: 'demandRows', entity: 'inventory', kind: 'invMatchDemandRows', matchType: 'Exact', limit: 150 }
@@ -933,6 +943,26 @@
       tip: r => `<strong>${escapeHtml(r.key)}</strong><br>${F.int(r.count)} matches (${F.pct(r.share)})`
     }));
     wireCsv('reasons', R.reasons?.rows || [], reasonCols, 'inventory-match-reasons.csv');
+
+    const callCols = noun => [
+      { key: 'key', label: noun },
+      { key: 'total', label: 'Called', align: 'right', format: F.int },
+      { key: 'share', label: 'Share of called', align: 'right', format: F.pct },
+      { key: 'vehicleAvailable', label: 'Vehicle available', align: 'right', format: F.int },
+      { key: 'rate', label: 'Available rate', align: 'right', format: F.pct }
+    ];
+    const callBars = (split, noun) => (host, p) => Charts.rankedBars(host, p[split] || [], {
+      labelRatio: 0.42,
+      meta: r => `${F.int(r.total)} · ${F.pct(r.share)} · ${F.pct(r.rate)} avail`,
+      tip: r => `<strong>${escapeHtml(r.key)}</strong><br>${F.int(r.total)} called matches (${F.pct(r.share)} of called)<br>` +
+        `<span class="tip-key" style="--k:var(--series-1)"></span>Vehicle available ${F.int(r.vehicleAvailable)} (${F.pct(r.rate)})`,
+      emptyMessage: `No called inventory matches with a ${noun} in this window.`
+    });
+    fill('callAnswers', R.callDetail?.answersUnavailable ? { unavailable: R.callDetail.answersUnavailable } : R.callDetail,
+      callBars('answers', 'call answer'));
+    wireCsv('callAnswers', R.callDetail?.answers || [], callCols('Call answer'), 'inventory-call-answers.csv');
+    fill('callNotes', R.callDetail, callBars('notes', 'call note'));
+    wireCsv('callNotes', R.callDetail?.notes || [], callCols('Call note'), 'inventory-call-notes.csv');
 
     const matchCols = [
       { key: 'key', label: 'City / PSA' },
@@ -1011,7 +1041,7 @@
       <div class="panel-grid">
         ${panel('Bid → act → fulfil', 'FO App bids only. Fulfilled = linked demand status VEHICLE_PLACED_BY_FT. Time to act is bid placed → first PSA call/accept.', { span: 6, body: 'funnel' })}
         ${panel('Why the bid was not fulfilled', 'Best available reason: acceptance comment, DS comment, cancellation reason, call answer, or demand status.', { span: 6, body: 'reasons', actions: csvButton('reasons') })}
-        ${panel('Time to act on bid vs fulfilment', 'Fulfilment rate by how long the bid waited before PSA acted (call or accept).', { span: 6, body: 'aging', legend: legend([['Fulfilment rate', 'var(--series-3)']]) })}
+        ${panel('Time to act on bid vs fulfilment', 'Fulfilment rate by how long the bid waited before PSA acted (call or accept): 0–30 min, 30 min–1 hr, 1–2 hr, >2 hr.', { span: 6, body: 'aging', legend: legend([['Fulfilment rate', 'var(--series-3)']]) })}
         ${panel('Bids over time', 'FT-fulfilled volume with the rest stacked on top.', { span: 6, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Not fulfilled', 'var(--series-2)']]) })}
         ${panel('PSA handling FO App bids', 'Bids touched, fulfilment, and median time to act.', { span: 6, body: 'psa', actions: csvButton('psa') })}
         ${panel('FO placing bids', 'Which FOs bid from the app and how often those bids convert to FT placement.', { span: 6, body: 'fos', actions: csvButton('fos') })}

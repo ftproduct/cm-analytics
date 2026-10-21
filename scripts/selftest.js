@@ -84,10 +84,52 @@ check('group totals never exceed the unfiltered total', () => {
 });
 check('office-hours buckets partition every demand', () => {
   const o = engine.runSpec({ entity: 'demand', kind: 'officeHours', filters });
-  assert.deepStrictEqual(o.rows.map(r => r.key), ['9am–1pm', '1pm–7pm', 'After office hours']);
+  assert.deepStrictEqual(o.rows.map(r => r.key), ['9–11am', '11am–1pm', '1–3pm', '3–5pm', '5–7pm', '>7pm']);
   const sum = o.rows.reduce((s, r) => s + r.total, 0);
   assert.strictEqual(sum, summary.current.total);
   assert.ok(Math.abs(o.rows.reduce((s, r) => s + r.share, 0) - 100) < 0.2);
+});
+check('office-hours slots put each boundary hour in the later slot', () => {
+  const at = h => engine.officeHoursBucket(`2026-05-01T${String(h).padStart(2, '0')}:30:00`);
+  assert.deepStrictEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map(at),
+    ['9–11am', '9–11am', '11am–1pm', '11am–1pm', '1–3pm', '1–3pm', '3–5pm', '3–5pm', '5–7pm', '5–7pm']);
+  assert.deepStrictEqual([19, 23, 0, 8].map(at), ['>7pm', '>7pm', '>7pm', '>7pm']);
+});
+check('bid time-to-act uses the 30-minute / 1h / 2h ladder, inventory keeps its own', () => {
+  const bids = [0.1, 0.49, 0.5, 0.99, 1, 1.5, 2, 30, null].map((touchHours, i) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', touchHours, isConverted: i % 2 === 0
+  }));
+  const rows = engine.runSpec({ entity: 'bids', kind: 'aging', filters: {} }, { demand: [], inventory: [], bids }).rows;
+  assert.deepStrictEqual(rows.map(r => [r.bucket, r.total]),
+    [['0–30 min', 2], ['30 min–1 hr', 2], ['1–2 hr', 2], ['>2 hr', 2], ['Never touched', 1]]);
+});
+check('call detail splits answers and notes over called matches and counts those that reached available', () => {
+  const mk = (isCalled, callAnswer, callNotes, isVehicleAvailable) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01',
+    isCalled, callAnswer, callNotes, isVehicleAvailable
+  });
+  const inventory = [
+    mk(true, 'Available', 'Truck free', true), mk(true, 'available ', 'truck free', true),
+    mk(true, 'Not available', null, false), mk(true, null, '  ', false),
+    mk(false, 'Available', 'never called', true)
+  ];
+  const d = engine.runSpec({ entity: 'inventory', kind: 'invCallDetail', filters: {} }, { demand: [], inventory, bids: [] });
+  assert.strictEqual(d.called, 4);
+  assert.strictEqual(d.vehicleAvailable, 2);
+  assert.deepStrictEqual(d.answers.map(r => [r.key, r.total, r.vehicleAvailable]),
+    [['Available', 2, 2], ['No answer', 1, 0], ['Not available', 1, 0]]);
+  assert.deepStrictEqual(d.notes.map(r => [r.key, r.total, r.vehicleAvailable]),
+    [['No note', 2, 0], ['Truck free', 2, 2]]);
+});
+check('call detail folds the long tail of notes into Other and flags snapshots without call answers', () => {
+  const inventory = Array.from({ length: 5 }, (_, i) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', isCalled: true, callNotes: 'note ' + i, isVehicleAvailable: i === 4
+  }));
+  const d = engine.runSpec({ entity: 'inventory', kind: 'invCallDetail', limit: 2, filters: {} }, { demand: [], inventory, bids: [] });
+  assert.strictEqual(d.notes.length, 3);
+  assert.deepStrictEqual([d.notes[2].key, d.notes[2].total, d.notes[2].vehicleAvailable], ['Other (3 more)', 3, 1]);
+  assert.deepStrictEqual(d.answers, []);
+  assert.ok(d.answersUnavailable);
 });
 check('an outcome filter actually narrows the rows', () => {
   const only = engine.runSpec({ entity: 'demand', kind: 'summary', filters: { ...filters, outcome: 'fail' } });

@@ -646,9 +646,12 @@ async function runOfficeHours(filters) {
   // Wall-clock hour on the warehouse timestamp (IST for this marketplace).
   const hour = `hour(cast(${created} AS timestamp))`;
   const slot = `CASE
-    WHEN ${hour} >= 9 AND ${hour} < 13 THEN '9am–1pm'
-    WHEN ${hour} >= 13 AND ${hour} < 19 THEN '1pm–7pm'
-    ELSE 'After office hours'
+    WHEN ${hour} >= 9 AND ${hour} < 11 THEN '9–11am'
+    WHEN ${hour} >= 11 AND ${hour} < 13 THEN '11am–1pm'
+    WHEN ${hour} >= 13 AND ${hour} < 15 THEN '1–3pm'
+    WHEN ${hour} >= 15 AND ${hour} < 17 THEN '3–5pm'
+    WHEN ${hour} >= 17 AND ${hour} < 19 THEN '5–7pm'
+    ELSE '>7pm'
   END`;
   const ok = successExpr('demand');
   const val = valueExpr('demand');
@@ -675,7 +678,7 @@ GROUP BY 1`;
     }];
   }));
   const grand = [...byKey.values()].reduce((s, r) => s + r.total, 0) || 1;
-  const order = ['9am–1pm', '1pm–7pm', 'After office hours'];
+  const order = ['9–11am', '11am–1pm', '1–3pm', '3–5pm', '5–7pm', '>7pm'];
   return {
     timezone: 'Asia/Kolkata',
     rows: order.map(key => {
@@ -726,6 +729,7 @@ async function runSpec(spec) {
     case 'invMatch':
     case 'invMatchGroup':
     case 'invMatchDemandRows':
+    case 'invCallDetail':
     case 'supercluster':
       throw new Error(
         `Metric "${spec.kind}" needs a synced snapshot (Metabase 1190 inventory matches, FO App bids). Press Sync.`
