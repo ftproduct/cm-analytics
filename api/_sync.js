@@ -219,6 +219,7 @@ function inventoryQuery(from, to, limit) {
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
   it.inventory_type AS inventoryType,
+  it.fo_name AS foName,
   ${callSourceSql('it.agent_created', { resolved: true })} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster

@@ -310,7 +310,8 @@ function inventoryLookupJoin(alias = 'it') {
     SELECT
       reference_id,
       max(CASE WHEN ${test} THEN 1 ELSE 0 END) = 1 AS agent_created,
-      min(lower(trim(coalesce(inventory_type, '')))) AS inventory_type
+      min(lower(trim(coalesce(inventory_type, '')))) AS inventory_type,
+      max(nullif(trim(fo_name), '')) AS fo_name
     FROM ${qualifiedName('phase2poc_trip_location_mapping_static')}
     WHERE reference_id IS NOT NULL
     GROUP BY reference_id

@@ -469,11 +469,14 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
         createdAt: r.createdAt,
         createdDate: r.createdDate,
         psa: r.psa || null,
-        city: r.originSuperCluster || r.originCity || null,
+        origin: r.originCity || r.originSuperCluster || null,
+        destination: r.destinationCity || r.destinationSuperCluster || null,
         status: r.demandStatus || r.status || null,
         isLiquidLane: r.laneType === 'Power lane',
         matchCount: 0,
         inventoryIds: [],
+        foNames: [],
+        lsps: [],
         details: [],
         callNotes: [],
         acted: 0,
@@ -486,6 +489,8 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
     }
     g.matchCount++;
     if (r.inventoryId) g.inventoryIds.push(String(r.inventoryId));
+    if (r.foName) g.foNames.push(String(r.foName));
+    if (r.lsp) g.lsps.push(String(r.lsp));
     g.details.push(
       `Inventory: ${r.inventoryId || '-'} | Called: ${r.isCalled ? 'Yes' : 'No'}` +
       ` | Call Type: ${r.callType || 'Not Called'}` +
@@ -502,6 +507,8 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
   const out = [...byDemand.values()].map(g => ({
     ...g,
     matchedInventoryIds: [...new Set(g.inventoryIds)].join(' | '),
+    foName: [...new Set(g.foNames)].join(' | ') || null,
+    lsp: [...new Set(g.lsps)].join(' | ') || null,
     exactInventoryDetails: g.details.join('\n----------------\n'),
     callNotes: g.callNotes.join('\n') || null
   }));
