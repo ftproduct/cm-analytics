@@ -145,6 +145,12 @@ check('exact-match demand rows carry FO, LSP, origin and destination, and no cit
   assert.strictEqual(out.destination, 'Delhi');
   assert.ok(!('city' in out));
 });
+check('inventory FO name is read from TLMS by inventory_id, not by reference_id', () => {
+  const sql = require('../api/_sync').inventoryQuery('2026-10-01', '2026-10-31', 5);
+  assert.ok(/fo\.fo_name AS foName/.test(sql));
+  assert.ok(/ON fo\.id = ds\.inventory_id/.test(sql));
+  assert.ok(!/it\.fo_name/.test(sql), 'FO name must not come from the reference_id lookup');
+});
 check('an outcome filter actually narrows the rows', () => {
   const only = engine.runSpec({ entity: 'demand', kind: 'summary', filters: { ...filters, outcome: 'fail' } });
   assert.strictEqual(only.current.success, 0);
