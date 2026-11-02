@@ -131,6 +131,20 @@ check('call detail folds the long tail of notes into Other and flags snapshots w
   assert.deepStrictEqual(d.answers, []);
   assert.ok(d.answersUnavailable);
 });
+check('exact-match demand rows carry FO, LSP, origin and destination, and no city', () => {
+  const mk = (inventoryId, foName, lsp) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', demandId: 'D1', matchType: 'Exact',
+    psa: 'Asha', originCity: 'Pune', destinationCity: 'Delhi', inventoryId, foName, lsp
+  });
+  const inventory = [mk('1', 'Ramesh', 'Shree'), mk('2', 'Ramesh', 'Apex'), mk('3', null, null)];
+  const out = engine.runSpec({ entity: 'inventory', kind: 'invMatchDemandRows', matchType: 'Exact', filters: {} },
+    { demand: [], inventory, bids: [] }).rows[0];
+  assert.strictEqual(out.foName, 'Ramesh');
+  assert.strictEqual(out.lsp, 'Shree | Apex');
+  assert.strictEqual(out.origin, 'Pune');
+  assert.strictEqual(out.destination, 'Delhi');
+  assert.ok(!('city' in out));
+});
 check('an outcome filter actually narrows the rows', () => {
   const only = engine.runSpec({ entity: 'demand', kind: 'summary', filters: { ...filters, outcome: 'fail' } });
   assert.strictEqual(only.current.success, 0);

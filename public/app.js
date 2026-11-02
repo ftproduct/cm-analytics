@@ -910,7 +910,7 @@
         ${panel('Call notes', 'Of the inventory matches that were called, the call notes recorded (demand_supply.call_notes), and how many of those calls ended with the vehicle available. The ten most common notes are shown, the rest folded into Other.', { span: 6, body: 'callNotes', actions: csvButton('callNotes') })}
         ${panel('Inventory — city wise', 'Demands matched with inventory, Exact vs Origin split, and funnel counts by origin city.', { span: 12, body: 'city', actions: csvButton('city') })}
         ${panel('Inventory — PSA wise', 'Same funnel by PSA (Demand_Bot_PSA excluded).', { span: 12, body: 'psa', actions: csvButton('psa') })}
-        ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches. Call and availability detail inline.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
+        ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches: the FO and LSP behind the match, origin → destination, and call and availability detail inline. FO name needs a Sync on snapshots taken before it was added.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
       </div>`;
     wireGrainToggles();
 
@@ -1015,7 +1015,10 @@
       { key: 'demandId', label: 'Demand' },
       { key: 'createdDate', label: 'Created' },
       { key: 'psa', label: 'PSA' },
-      { key: 'city', label: 'City' },
+      { key: 'foName', label: 'FO name' },
+      { key: 'lsp', label: 'LSP' },
+      { key: 'origin', label: 'Origin' },
+      { key: 'destination', label: 'Destination' },
       { key: 'status', label: 'Status' },
       { key: 'matchCount', label: 'Exact matches', align: 'right', format: F.int },
       { key: 'acted', label: 'Acted', align: 'right', format: F.int },
