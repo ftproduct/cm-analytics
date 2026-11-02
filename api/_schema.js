@@ -310,11 +310,24 @@ function inventoryLookupJoin(alias = 'it') {
     SELECT
       reference_id,
       max(CASE WHEN ${test} THEN 1 ELSE 0 END) = 1 AS agent_created,
-      min(lower(trim(coalesce(inventory_type, '')))) AS inventory_type,
-      max(nullif(trim(fo_name), '')) AS fo_name
+      min(lower(trim(coalesce(inventory_type, '')))) AS inventory_type
     FROM ${qualifiedName('phase2poc_trip_location_mapping_static')}
     WHERE reference_id IS NOT NULL
     GROUP BY reference_id
+  ) ${alias}`;
+}
+
+// FO name of the inventory behind a match. Unlike the lookup above, this is
+// keyed on TLMS.id = demand_supply.inventory_id: reference_id only lines up for
+// FO App bids (about 4% of October's inventory matches), while inventory_id
+// reaches TLMS for every match. The aggregate keeps it to one row per id so a
+// CDC history cannot multiply the matches.
+function inventoryFoNameJoin(alias = 'fo') {
+  return `LEFT JOIN (
+    SELECT id, max(nullif(trim(fo_name), '')) AS fo_name
+    FROM ${qualifiedName('phase2poc_trip_location_mapping_static')}
+    WHERE id IS NOT NULL
+    GROUP BY id
   ) ${alias}`;
 }
 
@@ -439,7 +452,7 @@ module.exports = {
   laneExpr, superClusterLaneExpr, unfulfilmentReasonExpr,
   demandSourceExpr, demandSourceCase,
   callSourceExpr, callSourceCase, callSourceFromFlag,
-  inventoryLookupJoin, isAgentSourceExpr,
+  inventoryLookupJoin, inventoryFoNameJoin, isAgentSourceExpr,
   isFulfilledExpr, isConvertedExpr, excludeStatusesExpr,
   inventoryJoinedSubquery,
   DIMENSIONS, availableDimensions, dimensionExpr

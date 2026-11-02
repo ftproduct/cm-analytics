@@ -219,7 +219,7 @@ function inventoryQuery(from, to, limit) {
   END AS laneType,
   ${demandSourceSql('d')} AS demandSource,
   it.inventory_type AS inventoryType,
-  it.fo_name AS foName,
+  fo.fo_name AS foName,
   ${callSourceSql('it.agent_created', { resolved: true })} AS callSource,
   d.origin_super_cluster_name AS originSuperCluster,
   d.destination_super_cluster_name AS destinationSuperCluster
@@ -228,6 +228,8 @@ INNER JOIN ${demand} d
   ON d.id = ds.demand_id
 ${S.inventoryLookupJoin('it')}
   ON it.reference_id = ds.id
+${S.inventoryFoNameJoin('fo')}
+  ON fo.id = ds.inventory_id
 WHERE upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY'
   AND d.origin_super_cluster_name IS NOT NULL
   AND d.created_at IS NOT NULL
@@ -492,4 +494,4 @@ async function runSync(opts = {}) {
   return meta;
 }
 
-module.exports = { runSync, windowFor, bidsQuery, DEFAULT_DAYS, MAX_ROWS };
+module.exports = { runSync, windowFor, bidsQuery, inventoryQuery, DEFAULT_DAYS, MAX_ROWS };
