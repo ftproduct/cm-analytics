@@ -170,6 +170,7 @@ function inventoryQuery(from, to, limit) {
   ${zone.zoneSqlFromSuperCluster(clusters, 'd.origin_super_cluster_name')} AS region,
   cast(NULL AS string) AS branch,
   coalesce(ds.supplier_company_name, d.lsp) AS lsp,
+  d.lsp AS demandLsp,
   d.psa AS psa,
   d.truck_type AS vehicleType,
   cast(NULL AS double) AS capacityTons,

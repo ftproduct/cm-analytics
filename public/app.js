@@ -910,7 +910,7 @@
         ${panel('Call notes', 'Of the inventory matches that were called, the call notes recorded (demand_supply.call_notes), and how many of those calls ended with the vehicle available. The ten most common notes are shown, the rest folded into Other.', { span: 6, body: 'callNotes', actions: csvButton('callNotes') })}
         ${panel('Inventory — city wise', 'Demands matched with inventory, Exact vs Origin split, and funnel counts by origin city.', { span: 12, body: 'city', actions: csvButton('city') })}
         ${panel('Inventory — PSA wise', 'Same funnel by PSA (Demand_Bot_PSA excluded).', { span: 12, body: 'psa', actions: csvButton('psa') })}
-        ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches: the FO and LSP behind the match, origin → destination, and call and availability detail inline. FO name needs a Sync on snapshots taken before it was added.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
+        ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches: the FO behind the match, the LSP on the demand, origin → destination, and call and availability detail inline. FO name and LSP need a Sync on snapshots taken before they were added.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
       </div>`;
     wireGrainToggles();
 
