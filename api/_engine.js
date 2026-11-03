@@ -476,7 +476,8 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
         matchCount: 0,
         inventoryIds: [],
         foNames: [],
-        lsps: [],
+        // The demand's own LSP: one value per demand, unlike the per-match supplier.
+        lsp: r.demandLsp || null,
         details: [],
         callNotes: [],
         acted: 0,
@@ -490,7 +491,6 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
     g.matchCount++;
     if (r.inventoryId) g.inventoryIds.push(String(r.inventoryId));
     if (r.foName) g.foNames.push(String(r.foName));
-    if (r.lsp) g.lsps.push(String(r.lsp));
     g.details.push(
       `Inventory: ${r.inventoryId || '-'} | Called: ${r.isCalled ? 'Yes' : 'No'}` +
       ` | Call Type: ${r.callType || 'Not Called'}` +
@@ -508,7 +508,6 @@ function invMatchDemandRows(rows, matchType, limit = 200) {
     ...g,
     matchedInventoryIds: [...new Set(g.inventoryIds)].join(' | '),
     foName: [...new Set(g.foNames)].join(' | ') || null,
-    lsp: [...new Set(g.lsps)].join(' | ') || null,
     exactInventoryDetails: g.details.join('\n----------------\n'),
     callNotes: g.callNotes.join('\n') || null
   }));

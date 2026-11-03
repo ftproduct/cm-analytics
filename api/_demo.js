@@ -330,6 +330,7 @@ function build() {
         callNotes: isCalled && r() < 0.35 ? CALL_NOTES[invSeq % CALL_NOTES.length] : null,
         callAnswer: isCalled ? CALL_ANSWERS[invSeq % CALL_ANSWERS.length] : null,
         foName: FO_NAMES[invSeq % FO_NAMES.length],
+        demandLsp: lsp.name,
         inventoryType: r() < 0.62 ? 'fo_app' : 'crm',
         callSource: isCalled && r() < 0.61 ? 'AI called' : 'Manual',
         laneType: r() < 0.28 ? 'Power lane' : 'Non power lane',
