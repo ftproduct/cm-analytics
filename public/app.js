@@ -1590,18 +1590,18 @@
   async function renderPeople() {
     $('#main').innerHTML = `
       <div class="panel-grid">
-        ${panel('PSA scorecard — demand side', 'Demands owned and the fill rate each PSA delivered. Rate alone is unfair on whoever carries the hard lanes, so volume sits beside it.', { span: 6, body: 'psaDemand', actions: csvButton('psaDemand') })}
-        ${panel('PSA scorecard — supply side', 'Postings owned, conversion achieved, and median time to convert.', { span: 6, body: 'psaInv', actions: csvButton('psaInv') })}
+        ${panel('PSA scorecard — demand side', 'Every PSA, with demands owned and the fill rate each delivered. Rate alone is unfair on whoever carries the hard lanes, so volume sits beside it. The list scrolls.', { span: 6, body: 'psaDemand', actions: csvButton('psaDemand') })}
+        ${panel('PSA scorecard — supply side', 'Every PSA, with postings owned, conversion achieved, and median time to convert. The list scrolls.', { span: 6, body: 'psaInv', actions: csvButton('psaInv') })}
         ${panel('PSAs moving', 'Fill-rate change against the previous period of equal length.', { span: 12, body: 'psaMovers', actions: csvButton('psaMovers') })}
-        ${panel('LSP reliability', 'Fill rate by carrier. A low rate on high volume is a commercial conversation; a low rate on low volume is a sourcing one. Demands with no carrier attributed are excluded — they would otherwise show as a carrier that never delivers.', { span: 6, body: 'lspRate', actions: csvButton('lspRate') })}
+        ${panel('LSP reliability', 'Fill rate by carrier. A low rate on high volume is a commercial conversation; a low rate on low volume is a sourcing one. Demands with no carrier attributed are excluded — they would otherwise show as a carrier that never delivers. Every carrier is listed; the list scrolls.', { span: 6, body: 'lspRate', actions: csvButton('lspRate') })}
         ${panel('Carrier concentration', 'How much of the book rests on the largest carriers.', { span: 6, body: 'conc' })}
       </div>`;
 
     const res = await fetchMetrics([
-      { id: 'psaDemand', entity: 'demand', kind: 'group', groupBy: 'psa', limit: 20 },
-      { id: 'psaInv', entity: 'inventory', kind: 'group', groupBy: 'psa', limit: 20 },
+      { id: 'psaDemand', entity: 'demand', kind: 'group', groupBy: 'psa', limit: 0 },
+      { id: 'psaInv', entity: 'inventory', kind: 'group', groupBy: 'psa', limit: 0 },
       { id: 'psaMovers', entity: 'demand', kind: 'movers', groupBy: 'psa', limit: 10 },
-      { id: 'lspRate', entity: 'demand', kind: 'group', groupBy: 'lsp', limit: 20 },
+      { id: 'lspRate', entity: 'demand', kind: 'group', groupBy: 'lsp', limit: 0 },
       { id: 'summary', entity: 'demand', kind: 'summary' }
     ]);
     if (!res) return;
@@ -1647,13 +1647,16 @@
     // Unfulfilled demand frequently carries no LSP, so an "Unknown" bucket would
     // sit at 0% by construction and read as the worst carrier on the book.
     const attributed = (R.lspRate?.rows || []).filter(r => r.key && r.key !== 'Unknown');
-    fill('lspRate', R.lspRate, host => Charts.rankedBars(host, attributed, {
+    fill('lspRate', R.lspRate, host => {
+      host.classList.add('scroll-panel');
+      Charts.rankedBars(host, attributed, {
       value: r => r.rate ?? 0, max: 100, colorRole: 'var(--series-1)',
       meta: r => `${F.pct(r.rate)} on ${F.int(r.total)}`,
       tip: rateTip('demands', 'Fulfilled'),
       emptyMessage: 'No demand in this window has a carrier attributed.',
       onSelect: r => { State.filters.lsp = [r.key]; onFiltersChanged(); }
-    }));
+      });
+    });
     wireCsv('lspRate', attributed, psaDemandCols.map(c => c.key === 'key' ? { ...c, label: 'LSP' } : c), 'lsp-reliability.csv');
 
     fill('conc', R.summary, (host, p) => {
