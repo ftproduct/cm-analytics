@@ -894,6 +894,18 @@
 
   // ---- Inventory (Metabase 1190 demand↔inventory match) ----------------
 
+  // Which match type the Call answers / Call notes panels cover: 'all', 'Exact'
+  // or 'Origin'. Kept across re-renders of the tab.
+  let callMatch = 'all';
+
+  const callMatchFilter = () => (callMatch === 'all' ? {} : { matchType: [callMatch] });
+
+  const callMatchToggle = () =>
+    `<div class="segmented" data-role="call-match" role="group" aria-label="Match type">` +
+    [['all', 'All'], ['Exact', 'Exact'], ['Origin', 'Origin']].map(([k, label]) =>
+      `<button type="button" data-match="${k}" aria-pressed="${callMatch === k}">${label}</button>`).join('') +
+    `</div>`;
+
   async function renderInventory() {
     // The call-source column is optional: deployments that do not record what
     // placed the call get the tab they had before, not an empty panel.
@@ -906,8 +918,8 @@
         ${panel('Inventory matches over time', 'Match volume with demands that placed via inventory stacked as success.', { span: 12, body: 'trend', actions: grainToggle(), legend: legend([['Placed (match rows)', 'var(--series-1)'], ['Not placed', 'var(--series-2)']]) })}
         ${hasCallSource ? panel('AI called vs manual inventory', 'Whether the AI agent created this inventory by calling, or a person did. Placement rate sits beside each, so the two channels are compared on outcome rather than on volume. Click a bar to filter the dashboard to one channel.', { span: 6, body: 'callSplit', actions: csvButton('callSplit') }) : ''}
         ${panel('Why inventory matches did not place', 'Demand status / call answer when the match did not lead to FT placement.', { span: hasCallSource ? 6 : 12, body: 'reasons', actions: csvButton('reasons') })}
-        ${panel('Call answers', 'Of the inventory matches that were called, what the call answer was (demand_supply.call_answer), and how many of those calls ended with the vehicle available.', { span: 6, body: 'callAnswers', actions: csvButton('callAnswers') })}
-        ${panel('Call notes', 'Of the inventory matches that were called, the call notes recorded (demand_supply.call_notes), and how many of those calls ended with the vehicle available. The ten most common notes are shown, the rest folded into Other.', { span: 6, body: 'callNotes', actions: csvButton('callNotes') })}
+        ${panel('Call answers', 'Of the inventory matches that were called, what the call answer was (demand_supply.call_answer), and how many of those calls ended with the vehicle available. Each bar splits Exact from Origin matches; the switch limits the panel to one of them.', { span: 6, body: 'callAnswers', actions: callMatchToggle() + csvButton('callAnswers'), legend: legend([['Exact', 'var(--series-1)'], ['Origin', 'var(--series-2)']]) })}
+        ${panel('Call notes', 'Of the inventory matches that were called, the call notes recorded (demand_supply.call_notes), and how many of those calls ended with the vehicle available. The ten most common notes are shown, the rest folded into Other. Each bar splits Exact from Origin matches; the switch limits the panel to one of them.', { span: 6, body: 'callNotes', actions: callMatchToggle() + csvButton('callNotes'), legend: legend([['Exact', 'var(--series-1)'], ['Origin', 'var(--series-2)']]) })}
         ${panel('Inventory — city wise', 'Demands matched with inventory, Exact vs Origin split, and funnel counts by origin city.', { span: 12, body: 'city', actions: csvButton('city') })}
         ${panel('Inventory — PSA wise', 'Same funnel by PSA (Demand_Bot_PSA excluded).', { span: 12, body: 'psa', actions: csvButton('psa') })}
         ${panel('Inventory — demand wise (Exact match)', 'One row per demand with Exact/Lane inventory matches: the FO behind the match, the LSP on the demand, origin → destination, and call and availability detail inline. FO name and LSP need a Sync on snapshots taken before they were added.', { span: 12, body: 'demandRows', actions: csvButton('demandRows') })}
@@ -921,7 +933,7 @@
       { id: 'trend', entity: 'inventory', kind: 'timeseries', grain: State.grain },
       { id: 'reasons', entity: 'inventory', kind: 'reasons', limit: 12 },
       ...(hasCallSource ? [{ id: 'callSplit', entity: 'inventory', kind: 'group', groupBy: 'callSource', limit: 5 }] : []),
-      { id: 'callDetail', entity: 'inventory', kind: 'invCallDetail', limit: 10 },
+      { id: 'callDetail', entity: 'inventory', kind: 'invCallDetail', limit: 10, filters: callMatchFilter() },
       { id: 'city', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'originSuperCluster', limit: 30 },
       { id: 'psa', entity: 'inventory', kind: 'invMatchGroup', groupBy: 'psa', limit: 40 },
       { id: 'demandRows', entity: 'inventory', kind: 'invMatchDemandRows', matchType: 'Exact', limit: 150 }
@@ -969,22 +981,50 @@
     const callCols = noun => [
       { key: 'key', label: noun },
       { key: 'total', label: 'Called', align: 'right', format: F.int },
+      { key: 'exact', label: 'Exact', align: 'right', format: F.int },
+      { key: 'origin', label: 'Origin', align: 'right', format: F.int },
       { key: 'share', label: 'Share of called', align: 'right', format: F.pct },
       { key: 'vehicleAvailable', label: 'Vehicle available', align: 'right', format: F.int },
       { key: 'rate', label: 'Available rate', align: 'right', format: F.pct }
     ];
-    const callBars = (split, noun) => (host, p) => Charts.rankedBars(host, p[split] || [], {
-      labelRatio: 0.42,
-      meta: r => `${F.int(r.total)} · ${F.pct(r.share)} · ${F.pct(r.rate)} avail`,
-      tip: r => `<strong>${escapeHtml(r.key)}</strong><br>${F.int(r.total)} called matches (${F.pct(r.share)} of called)<br>` +
-        `<span class="tip-key" style="--k:var(--series-1)"></span>Vehicle available ${F.int(r.vehicleAvailable)} (${F.pct(r.rate)})`,
-      emptyMessage: `No called inventory matches with a ${noun} in this window.`
+    // Stacked bars: Exact in the success colour, Origin in the other, so the
+    // split reads at a glance. Matches that are neither (type unknown) count in
+    // the total but are not drawn.
+    const callBars = (split, noun) => (host, p) => Charts.rankedBars(host,
+      (p[split] || []).map(r => ({ ...r, success: r.exact, failed: r.origin })), {
+        stack: true,
+        successColor: 'var(--series-1)',
+        failColor: 'var(--series-2)',
+        labelRatio: 0.42,
+        value: r => r.total,
+        meta: r => `${F.int(r.total)} · ${F.pct(r.share)} · ${F.pct(r.rate)} avail`,
+        tip: r => `<strong>${escapeHtml(r.key)}</strong><br>${F.int(r.total)} called matches (${F.pct(r.share)} of called)<br>` +
+          `<span class="tip-key" style="--k:var(--series-1)"></span>Exact ${F.int(r.exact)}<br>` +
+          `<span class="tip-key" style="--k:var(--series-2)"></span>Origin ${F.int(r.origin)}<br>` +
+          `<span class="tip-muted">Vehicle available ${F.int(r.vehicleAvailable)} (${F.pct(r.rate)})</span>`,
+        emptyMessage: `No called ${callMatch === 'all' ? '' : callMatch + ' '}inventory matches with a ${noun} in this window.`
+      });
+    const paintCallDetail = d => {
+      fill('callAnswers', d?.answersUnavailable ? { unavailable: d.answersUnavailable } : d, callBars('answers', 'call answer'));
+      wireCsv('callAnswers', d?.answers || [], callCols('Call answer'), 'inventory-call-answers.csv');
+      fill('callNotes', d, callBars('notes', 'call note'));
+      wireCsv('callNotes', d?.notes || [], callCols('Call note'), 'inventory-call-notes.csv');
+    };
+    paintCallDetail(R.callDetail);
+
+    // Switching the match type re-asks only this metric, not the whole tab.
+    let callAsk = 0;
+    document.querySelectorAll('[data-role="call-match"] button').forEach(b => {
+      b.addEventListener('click', async () => {
+        if (callMatch === b.dataset.match) return;
+        callMatch = b.dataset.match;
+        document.querySelectorAll('[data-role="call-match"] button').forEach(x =>
+          x.setAttribute('aria-pressed', String(x.dataset.match === callMatch)));
+        const ask = ++callAsk;
+        const r = await fetchMetrics([{ id: 'callDetail', entity: 'inventory', kind: 'invCallDetail', limit: 10, filters: callMatchFilter() }]);
+        if (ask === callAsk && r) paintCallDetail(r.results.callDetail);
+      });
     });
-    fill('callAnswers', R.callDetail?.answersUnavailable ? { unavailable: R.callDetail.answersUnavailable } : R.callDetail,
-      callBars('answers', 'call answer'));
-    wireCsv('callAnswers', R.callDetail?.answers || [], callCols('Call answer'), 'inventory-call-answers.csv');
-    fill('callNotes', R.callDetail, callBars('notes', 'call note'));
-    wireCsv('callNotes', R.callDetail?.notes || [], callCols('Call note'), 'inventory-call-notes.csv');
 
     const matchCols = [
       { key: 'key', label: 'City / PSA' },
@@ -1070,7 +1110,7 @@
         ${panel('Bids over time', 'FT-fulfilled volume with the rest stacked on top.', { span: 6, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Not fulfilled', 'var(--series-2)']]) })}
         ${panel('PSA handling FO App bids', 'Bids touched, fulfilment, and median time to act.', { span: 6, body: 'psa', actions: csvButton('psa') })}
         ${panel('FO placing bids', 'Which FOs bid from the app and how often those bids convert to FT placement.', { span: 6, body: 'fos', actions: csvButton('fos') })}
-        ${panel('Recent FO App bids', 'Row-level: bid time, time to act, outcome, and probable reason when not fulfilled.', { span: 12, body: 'rows', actions: csvButton('rows') })}
+        ${panel('Recent FO App bids', 'Row-level: bid time, the demand the bid was placed against, time to act, outcome, and probable reason when not fulfilled.', { span: 12, body: 'rows', actions: csvButton('rows') })}
       </div>`;
     wireGrainToggles();
 
@@ -1141,6 +1181,7 @@
 
     const rowCols = [
       { key: 'createdAt', label: 'Bid at', format: v => escapeHtml(String(v || '').replace('T', ' ').slice(0, 19)) },
+      { key: 'demandId', label: 'Demand ID', format: v => (v == null || v === '' ? '—' : escapeHtml(String(v))) },
       { key: 'lsp', label: 'FO', format: escapeHtml },
       { key: 'psa', label: 'PSA', format: escapeHtml },
       { key: 'lane', label: 'Lane', format: escapeHtml },

@@ -528,9 +528,11 @@ function callDetail(rows, limit = 10) {
       const text = r[field] == null ? '' : String(r[field]).trim();
       const label = text || blank;
       const k = label.toLowerCase();
-      const g = groups.get(k) || { key: label, total: 0, vehicleAvailable: 0 };
+      const g = groups.get(k) || { key: label, total: 0, vehicleAvailable: 0, exact: 0, origin: 0 };
       g.total++;
       if (r.isVehicleAvailable) g.vehicleAvailable++;
+      if (isExactMatch(r)) g.exact++;
+      else if (isOriginMatch(r)) g.origin++;
       groups.set(k, g);
     }
     let list = [...groups.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
@@ -540,7 +542,9 @@ function callDetail(rows, limit = 10) {
       list.push({
         key: `Other (${tail.length} more)`,
         total: tail.reduce((s, g) => s + g.total, 0),
-        vehicleAvailable: tail.reduce((s, g) => s + g.vehicleAvailable, 0)
+        vehicleAvailable: tail.reduce((s, g) => s + g.vehicleAvailable, 0),
+        exact: tail.reduce((s, g) => s + g.exact, 0),
+        origin: tail.reduce((s, g) => s + g.origin, 0)
       });
     }
     return list.map(g => ({ ...g, share: pct(g.total, called.length), rate: pct(g.vehicleAvailable, g.total) }));
@@ -548,6 +552,8 @@ function callDetail(rows, limit = 10) {
   const out = {
     called: called.length,
     vehicleAvailable: called.filter(r => r.isVehicleAvailable).length,
+    calledExact: called.filter(isExactMatch).length,
+    calledOrigin: called.filter(isOriginMatch).length,
     notes: split('callNotes', 'No note')
   };
   // Snapshots synced before call_answer was pulled have no such column at all.
@@ -934,7 +940,9 @@ function drillRows(rows, entity, limit = 300) {
     reason: r.isFulfilled ? null : resolveReason(r, 'demand'), latencyHours: r.ttfHours, weightTons: r.weightTons,
     expectedPrice: r.expectedPrice, bookedPrice: r.bookedPrice
   } : {
-    id: r.id, createdAt: r.createdAt, lane: r.lane, lsp: r.lsp, psa: r.psa,
+    id: r.id, createdAt: r.createdAt,
+    demandId: r.demandId != null ? String(r.demandId) : (r.matchedDemandId != null ? String(r.matchedDemandId) : null),
+    lane: r.lane, lsp: r.lsp, psa: r.psa,
     vehicleType: r.vehicleType, stage: r.stage, status: r.status,
     outcome: r.isConverted ? 'Converted' : 'Not converted',
     reason: r.nonConversionReason, touchHours: r.touchHours, latencyHours: r.ttcHours,
