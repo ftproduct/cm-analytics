@@ -121,6 +121,22 @@ check('call detail splits answers and notes over called matches and counts those
   assert.deepStrictEqual(d.notes.map(r => [r.key, r.total, r.vehicleAvailable]),
     [['No note', 2, 0], ['Truck free', 2, 2]]);
 });
+check('call detail splits Exact from Origin and the match-type filter narrows it', () => {
+  const mk = (matchType, callNotes) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', isCalled: true, isVehicleAvailable: false, matchType, callNotes
+  });
+  const inventory = [mk('Exact', 'Truck free'), mk('Exact', 'truck free'), mk('Origin', 'Truck free'), mk('Origin', 'No truck')];
+  const run = filters => engine.runSpec({ entity: 'inventory', kind: 'invCallDetail', filters }, { demand: [], inventory, bids: [] });
+  const all = run({});
+  assert.deepStrictEqual(all.notes.map(r => [r.key, r.total, r.exact, r.origin]), [['Truck free', 3, 2, 1], ['No truck', 1, 0, 1]]);
+  assert.strictEqual(all.calledExact, 2);
+  assert.strictEqual(all.calledOrigin, 2);
+  const exact = run({ matchType: ['Exact'] });
+  assert.deepStrictEqual(exact.notes.map(r => [r.key, r.total, r.exact, r.origin]), [['Truck free', 2, 2, 0]]);
+  const origin = run({ matchType: ['Origin'] });
+  assert.strictEqual(origin.called, 2);
+  assert.strictEqual(origin.calledExact, 0);
+});
 check('call detail folds the long tail of notes into Other and flags snapshots without call answers', () => {
   const inventory = Array.from({ length: 5 }, (_, i) => ({
     createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', isCalled: true, callNotes: 'note ' + i, isVehicleAvailable: i === 4
