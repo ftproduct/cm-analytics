@@ -396,6 +396,13 @@ function invMatchAggregate(rows) {
     }
   }
 
+  // Inventory placed: match rows (not demands) that carry an inventory id and meet
+  // the placed rule, over every match type. Rows can repeat an inventory id when
+  // one inventory is matched to several demands, so the distinct ids are kept too.
+  const placedRows = rows.filter(r =>
+    r.inventoryId != null && String(r.inventoryId).trim() !== '' && r.isPlacementAvailable &&
+    String(r.demandStatus || r.status || '').toUpperCase() === 'VEHICLE_PLACED_BY_FT');
+
   const calledOf = (list) => list.filter(r => r.isCalled).length;
   const directOf = (list) => list.filter(r => r.callType === 'Direct').length;
   const indirectOf = (list) => list.filter(r => r.callType === 'Indirect').length;
@@ -421,7 +428,9 @@ function invMatchAggregate(rows) {
     demandPlacedOrigin: placedOrigin.size,
     originLapsed: lapsedOrigin.size,
     originRateMismatch: rateOrigin.size,
-    inventoryMatches: rows.length
+    inventoryMatches: rows.length,
+    inventoryPlaced: placedRows.length,
+    inventoryPlacedUnique: new Set(placedRows.map(r => String(r.inventoryId))).size
   };
 }
 
