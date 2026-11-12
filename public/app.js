@@ -1110,7 +1110,7 @@
         ${panel('Bids over time', 'FT-fulfilled volume with the rest stacked on top.', { span: 6, body: 'trend', actions: grainToggle(), legend: legend([['Fulfilled', 'var(--series-1)'], ['Not fulfilled', 'var(--series-2)']]) })}
         ${panel('PSA handling FO App bids', 'Bids touched, fulfilment, and median time to act.', { span: 6, body: 'psa', actions: csvButton('psa') })}
         ${panel('FO placing bids', 'Which FOs bid from the app and how often those bids convert to FT placement.', { span: 6, body: 'fos', actions: csvButton('fos') })}
-        ${panel('Recent FO App bids', 'Row-level: bid time, time to act, outcome, and probable reason when not fulfilled.', { span: 12, body: 'rows', actions: csvButton('rows') })}
+        ${panel('Recent FO App bids', 'Row-level: bid time, the demand the bid was placed against, time to act, outcome, and probable reason when not fulfilled.', { span: 12, body: 'rows', actions: csvButton('rows') })}
       </div>`;
     wireGrainToggles();
 
@@ -1181,6 +1181,7 @@
 
     const rowCols = [
       { key: 'createdAt', label: 'Bid at', format: v => escapeHtml(String(v || '').replace('T', ' ').slice(0, 19)) },
+      { key: 'demandId', label: 'Demand ID', format: v => (v == null || v === '' ? '—' : escapeHtml(String(v))) },
       { key: 'lsp', label: 'FO', format: escapeHtml },
       { key: 'psa', label: 'PSA', format: escapeHtml },
       { key: 'lane', label: 'Lane', format: escapeHtml },

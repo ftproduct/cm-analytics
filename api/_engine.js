@@ -940,7 +940,9 @@ function drillRows(rows, entity, limit = 300) {
     reason: r.isFulfilled ? null : resolveReason(r, 'demand'), latencyHours: r.ttfHours, weightTons: r.weightTons,
     expectedPrice: r.expectedPrice, bookedPrice: r.bookedPrice
   } : {
-    id: r.id, createdAt: r.createdAt, lane: r.lane, lsp: r.lsp, psa: r.psa,
+    id: r.id, createdAt: r.createdAt,
+    demandId: r.demandId != null ? String(r.demandId) : (r.matchedDemandId != null ? String(r.matchedDemandId) : null),
+    lane: r.lane, lsp: r.lsp, psa: r.psa,
     vehicleType: r.vehicleType, stage: r.stage, status: r.status,
     outcome: r.isConverted ? 'Converted' : 'Not converted',
     reason: r.nonConversionReason, touchHours: r.touchHours, latencyHours: r.ttcHours,
