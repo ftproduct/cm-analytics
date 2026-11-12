@@ -1088,6 +1088,8 @@
       tile('Exact / Origin demands', `${F.int(c.demandExact)} / ${F.int(c.demandOrigin)}`, ''),
       tile('Inventory matches', `${F.int(c.exactInventoryMatches)} / ${F.int(c.originInventoryMatches)}`,
         '<span class="tile-note">Exact / Origin</span>'),
+      tile('Inventory placed', F.int(c.inventoryPlaced),
+        `<span class="tile-note">${F.int(c.inventoryPlacedUnique)} unique IDs</span>` + deltaHtml(c.inventoryPlaced, p.inventoryPlaced)),
       tile('Exact called', F.int(c.exactCalled),
         `Direct ${F.int(c.exactCalledDirect)} · Indirect ${F.int(c.exactCalledIndirect)}`),
       tile('Exact vehicle avail', F.int(c.exactVehicleAvailable), deltaHtml(c.exactVehicleAvailable, p.exactVehicleAvailable)),

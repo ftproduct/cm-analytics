@@ -121,6 +121,21 @@ check('call detail splits answers and notes over called matches and counts those
   assert.deepStrictEqual(d.notes.map(r => [r.key, r.total, r.vehicleAvailable]),
     [['No note', 2, 0], ['Truck free', 2, 2]]);
 });
+check('inventory placed counts placed match rows with an inventory id, and the unique ids beside them', () => {
+  const mk = (inventoryId, over) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', matchType: 'Exact', demandId: 'D' + Math.random(),
+    inventoryId, isPlacementAvailable: true, demandStatus: 'VEHICLE_PLACED_BY_FT', ...over
+  });
+  const inventory = [
+    mk('10'), mk('10'), mk('11', { matchType: 'Origin' }),          // placed: 3 rows, 2 unique ids
+    mk(null),                                                        // no inventory id
+    mk('12', { isPlacementAvailable: false }),                       // no placement flag
+    mk('13', { demandStatus: 'LAPSED' })                             // demand not placed by FT
+  ];
+  const c = engine.runSpec({ entity: 'inventory', kind: 'invMatch', filters: {} }, { demand: [], inventory, bids: [] }).current;
+  assert.strictEqual(c.inventoryPlaced, 3);
+  assert.strictEqual(c.inventoryPlacedUnique, 2);
+});
 check('FO App bid rows carry the demand the bid was placed against', () => {
   const bids = [
     { id: 'b1', createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', matchedDemandId: 887907, demandId: '887907', isConverted: false },
