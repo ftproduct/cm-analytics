@@ -396,13 +396,6 @@ function invMatchAggregate(rows) {
     }
   }
 
-  // Inventory placed: match rows (not demands) that carry an inventory id and meet
-  // the placed rule, over every match type. Rows can repeat an inventory id when
-  // one inventory is matched to several demands, so the distinct ids are kept too.
-  const placedRows = rows.filter(r =>
-    r.inventoryId != null && String(r.inventoryId).trim() !== '' && r.isPlacementAvailable &&
-    String(r.demandStatus || r.status || '').toUpperCase() === 'VEHICLE_PLACED_BY_FT');
-
   const calledOf = (list) => list.filter(r => r.isCalled).length;
   const directOf = (list) => list.filter(r => r.callType === 'Direct').length;
   const indirectOf = (list) => list.filter(r => r.callType === 'Indirect').length;
@@ -428,9 +421,38 @@ function invMatchAggregate(rows) {
     demandPlacedOrigin: placedOrigin.size,
     originLapsed: lapsedOrigin.size,
     originRateMismatch: rateOrigin.size,
-    inventoryMatches: rows.length,
-    inventoryPlaced: placedRows.length,
-    inventoryPlacedUnique: new Set(placedRows.map(r => String(r.inventoryId))).size
+    inventoryMatches: rows.length
+  };
+}
+
+// Inventory rows come from demand_supply with any matched_by that carries an
+// inventory id. Everything on the Inventory tab was built on the inventory
+// matcher's own rows (Metabase 1190), so those stay the base; the extra rows only
+// feed the Inventory placed card. Snapshots from before matchedBy existed are all
+// matcher rows.
+function isInventoryMatched(r) {
+  return !r.matchedBy || String(r.matchedBy).toUpperCase() === 'INVENTORY';
+}
+
+function scopeInventory(data) {
+  return { ...data, inventory: (data.inventory || []).filter(isInventoryMatched) };
+}
+
+// Inventory placed: demand_supply rows with an inventory id and the placement flag
+// set, whatever matched_by produced them. Counted per row; one inventory can sit
+// on several demands, so the distinct ids and the split by matched_by come too.
+function inventoryPlacedAggregate(rows) {
+  const placed = rows.filter(r =>
+    r.inventoryId != null && String(r.inventoryId).trim() !== '' && r.isPlacementAvailable);
+  const byMatchedBy = {};
+  for (const r of placed) {
+    const k = r.matchedBy ? String(r.matchedBy).toUpperCase() : 'INVENTORY';
+    byMatchedBy[k] = (byMatchedBy[k] || 0) + 1;
+  }
+  return {
+    inventoryPlaced: placed.length,
+    inventoryPlacedUnique: new Set(placed.map(r => String(r.inventoryId))).size,
+    inventoryPlacedByMatchedBy: byMatchedBy
   };
 }
 
@@ -961,10 +983,11 @@ function drillRows(rows, entity, limit = 300) {
 
 // Distinct values for the filter comboboxes, ordered by volume.
 function filterOptions(filters = {}, dataset = null) {
-  const data = dataset || build();
-  ensureDerivedFields(data.demand);
-  ensureDerivedFields(data.inventory);
-  ensureDerivedFields(data.bids);
+  const full = dataset || build();
+  ensureDerivedFields(full.demand);
+  ensureDerivedFields(full.inventory);
+  ensureDerivedFields(full.bids);
+  const data = scopeInventory(full);
   const window = { from: filters.from, to: filters.to };
   const d = applyFilters(data.demand, 'demand', window);
   const i = applyFilters(data.inventory || [], 'inventory', window);
@@ -1036,10 +1059,11 @@ function limitOf(spec, fallback) {
 // `dataset` is { demand: [...], inventory: [...] }; it defaults to the generated
 // demo data so existing callers and the self-test keep working unchanged.
 function runSpec(spec, dataset = null) {
-  const data = dataset || build();
-  ensureDerivedFields(data.demand);
-  ensureDerivedFields(data.inventory);
-  ensureDerivedFields(data.bids);
+  const full = dataset || build();
+  ensureDerivedFields(full.demand);
+  ensureDerivedFields(full.inventory);
+  ensureDerivedFields(full.bids);
+  const data = scopeInventory(full);
   const entity = spec.entity === 'inventory'
     ? 'inventory'
     : (spec.entity === 'bids' ? 'bids' : 'demand');
@@ -1082,9 +1106,13 @@ function runSpec(spec, dataset = null) {
     case 'invMatch': {
       const prevF = shiftWindow(spec.filters);
       const prev = prevF ? applyFilters(source, entity, prevF) : [];
+      // The placed card reads every matched_by, so it takes the unscoped rows.
+      const all = full.inventory || [];
       return {
-        current: invMatchAggregate(rows),
-        previous: prevF ? invMatchAggregate(prev) : null
+        current: { ...invMatchAggregate(rows), ...inventoryPlacedAggregate(applyFilters(all, 'inventory', spec.filters)) },
+        previous: prevF
+          ? { ...invMatchAggregate(prev), ...inventoryPlacedAggregate(applyFilters(all, 'inventory', prevF)) }
+          : null
       };
     }
     case 'invMatchGroup':

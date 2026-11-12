@@ -118,7 +118,10 @@ ORDER BY ${created} DESC
 LIMIT ${limit}`;
 }
 
-// Inventory = demand↔supply matches with matched_by = INVENTORY.
+// Inventory = demand↔supply matches with matched_by = INVENTORY, plus any other
+// matched_by (MANUAL, CRM, ...) that carries an inventory id. Those extra rows
+// are tagged with matchedBy and only feed the Inventory placed card -- the engine
+// keeps every other metric on the INVENTORY rows (see scopeInventory).
 // Metabase dashboard 1190 cards 7584 / 7578 / 7579 / 7580 parity.
 // Grain: one row per demand_supply inventory match. Date filter = demand.created_at.
 function inventoryQuery(from, to, limit) {
@@ -210,6 +213,7 @@ function inventoryQuery(from, to, limit) {
   ${boolTrue('ds.is_vehicle_available')} AS isVehicleAvailable,
   ${boolTrue('ds.is_placement_available')} AS isPlacementAvailable,
   cast(ds.inventory_id AS string) AS inventoryId,
+  coalesce(nullif(upper(trim(ds.matched_by)), ''), 'UNKNOWN') AS matchedBy,
   ds.call_notes AS callNotes,
   ds.call_answer AS callAnswer,
   CASE
@@ -231,7 +235,7 @@ ${S.inventoryLookupJoin('it')}
   ON it.reference_id = ds.id
 ${S.inventoryFoNameJoin('fo')}
   ON fo.id = ds.inventory_id
-WHERE upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY'
+WHERE (upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY' OR ds.inventory_id IS NOT NULL)
   AND d.origin_super_cluster_name IS NOT NULL
   AND d.created_at IS NOT NULL
   AND to_date(d.created_at) >= to_date(:p0)

@@ -1074,6 +1074,12 @@
     wireCsv('demandRows', R.demandRows?.rows || [], demandCols, 'inventory-demand-exact.csv');
   }
 
+  // "By matched_by: INVENTORY 15 · MANUAL 19 · CRM 3" for the card's hover text.
+  function placedSplitTitle(by) {
+    const parts = Object.entries(by || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`);
+    return parts.length ? `Placed rows by matched_by: ${parts.join(' · ')}` : 'Placed rows by matched_by';
+  }
+
   function renderInvMatchTiles(s) {
     const host = $('#tiles');
     if (!host) return;
@@ -1088,7 +1094,7 @@
       tile('Exact / Origin demands', `${F.int(c.demandExact)} / ${F.int(c.demandOrigin)}`, ''),
       tile('Inventory matches', `${F.int(c.exactInventoryMatches)} / ${F.int(c.originInventoryMatches)}`,
         '<span class="tile-note">Exact / Origin</span>'),
-      tile('Inventory placed', F.int(c.inventoryPlaced),
+      tile('Inventory placed', `<span title="${escapeHtml(placedSplitTitle(c.inventoryPlacedByMatchedBy))}">${F.int(c.inventoryPlaced)}</span>`,
         `<span class="tile-note">${F.int(c.inventoryPlacedUnique)} unique IDs</span>` + deltaHtml(c.inventoryPlaced, p.inventoryPlaced)),
       tile('Exact called', F.int(c.exactCalled),
         `Direct ${F.int(c.exactCalledDirect)} · Indirect ${F.int(c.exactCalledIndirect)}`),

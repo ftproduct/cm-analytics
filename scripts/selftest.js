@@ -121,20 +121,45 @@ check('call detail splits answers and notes over called matches and counts those
   assert.deepStrictEqual(d.notes.map(r => [r.key, r.total, r.vehicleAvailable]),
     [['No note', 2, 0], ['Truck free', 2, 2]]);
 });
-check('inventory placed counts placed match rows with an inventory id, and the unique ids beside them', () => {
+check('inventory placed counts every row with an inventory id and the placement flag, any matched_by', () => {
   const mk = (inventoryId, over) => ({
     createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', matchType: 'Exact', demandId: 'D' + Math.random(),
-    inventoryId, isPlacementAvailable: true, demandStatus: 'VEHICLE_PLACED_BY_FT', ...over
+    matchedBy: 'INVENTORY', inventoryId, isPlacementAvailable: true, demandStatus: 'LAPSED', ...over
   });
   const inventory = [
-    mk('10'), mk('10'), mk('11', { matchType: 'Origin' }),          // placed: 3 rows, 2 unique ids
-    mk(null),                                                        // no inventory id
-    mk('12', { isPlacementAvailable: false }),                       // no placement flag
-    mk('13', { demandStatus: 'LAPSED' })                             // demand not placed by FT
+    mk('10'), mk('10'),                                   // same inventory on two demands: 2 rows, 1 id
+    mk('11', { matchedBy: 'MANUAL', matchType: 'Unknown' }),
+    mk('12', { matchedBy: 'CRM', matchType: 'Unknown' }),
+    mk(null),                                             // no inventory id
+    mk('13', { isPlacementAvailable: false })             // no placement flag
   ];
   const c = engine.runSpec({ entity: 'inventory', kind: 'invMatch', filters: {} }, { demand: [], inventory, bids: [] }).current;
-  assert.strictEqual(c.inventoryPlaced, 3);
-  assert.strictEqual(c.inventoryPlacedUnique, 2);
+  assert.strictEqual(c.inventoryPlaced, 4, 'the demand status is not part of the rule');
+  assert.strictEqual(c.inventoryPlacedUnique, 3);
+  assert.deepStrictEqual(c.inventoryPlacedByMatchedBy, { INVENTORY: 2, MANUAL: 1, CRM: 1 });
+});
+check('rows from other matched_by values never change the existing inventory numbers', () => {
+  const mk = (over) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', matchType: 'Exact', demandId: 'D' + Math.random(),
+    matchedBy: 'INVENTORY', inventoryId: '1', isCalled: true, isVehicleAvailable: true, ...over
+  });
+  const matcher = [mk(), mk(), mk({ matchType: 'Origin' })];
+  const extra = [mk({ matchedBy: 'MANUAL', matchType: 'Unknown' }), mk({ matchedBy: 'CRM', matchType: 'Unknown' })];
+  const run = (inventory, spec) => engine.runSpec({ entity: 'inventory', filters: {}, ...spec }, { demand: [], inventory, bids: [] });
+  assert.deepStrictEqual(
+    run([...matcher, ...extra], { kind: 'invMatch' }).current.inventoryMatches,
+    run(matcher, { kind: 'invMatch' }).current.inventoryMatches);
+  assert.strictEqual(run([...matcher, ...extra], { kind: 'summary' }).current.total, 3);
+  assert.deepStrictEqual(
+    run([...matcher, ...extra], { kind: 'funnel' }).rows, run(matcher, { kind: 'funnel' }).rows);
+  // rows from a snapshot synced before matchedBy existed are all matcher rows
+  const old = matcher.map(({ matchedBy, ...r }) => r);
+  assert.strictEqual(run(old, { kind: 'summary' }).current.total, 3);
+});
+check('the inventory sync reads any matched_by that carries an inventory id and tags it', () => {
+  const sql = require('../api/_sync').inventoryQuery('2026-11-01', '2026-11-12', 5).replace(/\s+/g, ' ');
+  assert.ok(sql.includes("(upper(trim(coalesce(ds.matched_by, ''))) = 'INVENTORY' OR ds.inventory_id IS NOT NULL)"));
+  assert.ok(sql.includes("AS matchedBy"));
 });
 check('FO App bid rows carry the demand the bid was placed against', () => {
   const bids = [
