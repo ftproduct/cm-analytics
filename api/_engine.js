@@ -449,10 +449,19 @@ function inventoryPlacedAggregate(rows) {
     const k = r.matchedBy ? String(r.matchedBy).toUpperCase() : 'INVENTORY';
     byMatchedBy[k] = (byMatchedBy[k] || 0) + 1;
   }
+  // Manual placed = total placed - (Exact placed + Origin placed), all counted as rows
+  // so the subtraction compares like with like. What is left is a placement whose
+  // match type is neither Exact nor Origin, i.e. not made by the inventory matcher's
+  // lane or origin match.
+  const exactPlaced = placed.filter(isExactMatch).length;
+  const originPlaced = placed.filter(isOriginMatch).length;
   return {
     inventoryPlaced: placed.length,
     inventoryPlacedUnique: new Set(placed.map(r => String(r.inventoryId))).size,
-    inventoryPlacedByMatchedBy: byMatchedBy
+    inventoryPlacedByMatchedBy: byMatchedBy,
+    inventoryPlacedExact: exactPlaced,
+    inventoryPlacedOrigin: originPlaced,
+    inventoryPlacedManual: placed.length - exactPlaced - originPlaced
   };
 }
 

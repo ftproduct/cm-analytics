@@ -138,6 +138,24 @@ check('inventory placed counts every row with an inventory id and the placement 
   assert.strictEqual(c.inventoryPlacedUnique, 3);
   assert.deepStrictEqual(c.inventoryPlacedByMatchedBy, { INVENTORY: 2, MANUAL: 1, CRM: 1 });
 });
+check('manual placed is total placed minus exact placed minus origin placed, as rows', () => {
+  const mk = (inventoryId, matchType, over) => ({
+    createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', demandId: 'D' + Math.random(),
+    matchedBy: 'INVENTORY', inventoryId, matchType, isPlacementAvailable: true, ...over
+  });
+  const inventory = [
+    mk('1', 'Exact'), mk('2', 'Exact'), mk('3', 'Origin'),
+    mk('4', 'Unknown', { matchedBy: 'MANUAL' }), mk('5', 'Unknown', { matchedBy: 'CRM' }),
+    mk('6', 'Exact', { isPlacementAvailable: false }),   // not placed: in none of the counts
+    mk(null, 'Unknown', { matchedBy: 'MANUAL' })         // no inventory id: not counted
+  ];
+  const c = engine.runSpec({ entity: 'inventory', kind: 'invMatch', filters: {} }, { demand: [], inventory, bids: [] }).current;
+  assert.strictEqual(c.inventoryPlaced, 5);
+  assert.strictEqual(c.inventoryPlacedExact, 2);
+  assert.strictEqual(c.inventoryPlacedOrigin, 1);
+  assert.strictEqual(c.inventoryPlacedManual, 2);
+  assert.strictEqual(c.inventoryPlaced - c.inventoryPlacedExact - c.inventoryPlacedOrigin, c.inventoryPlacedManual);
+});
 check('rows from other matched_by values never change the existing inventory numbers', () => {
   const mk = (over) => ({
     createdAt: '2026-05-01T10:00:00', createdDate: '2026-05-01', matchType: 'Exact', demandId: 'D' + Math.random(),
