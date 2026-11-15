@@ -449,19 +449,23 @@ function inventoryPlacedAggregate(rows) {
     const k = r.matchedBy ? String(r.matchedBy).toUpperCase() : 'INVENTORY';
     byMatchedBy[k] = (byMatchedBy[k] || 0) + 1;
   }
-  // Manual placed = total placed - (Exact placed + Origin placed), all counted as rows
-  // so the subtraction compares like with like. What is left is a placement whose
-  // match type is neither Exact nor Origin, i.e. not made by the inventory matcher's
-  // lane or origin match.
-  const exactPlaced = placed.filter(isExactMatch).length;
-  const originPlaced = placed.filter(isOriginMatch).length;
   return {
     inventoryPlaced: placed.length,
     inventoryPlacedUnique: new Set(placed.map(r => String(r.inventoryId))).size,
-    inventoryPlacedByMatchedBy: byMatchedBy,
-    inventoryPlacedExact: exactPlaced,
-    inventoryPlacedOrigin: originPlaced,
-    inventoryPlacedManual: placed.length - exactPlaced - originPlaced
+    inventoryPlacedByMatchedBy: byMatchedBy
+  };
+}
+
+// Manual placed = Inventory placed - (Placed Exact + Placed Origin), using the two
+// existing Placed cards as they are shown (unique demands, placed by FT), so the
+// card can be checked by hand from the cards beside it. Placements outside the
+// Exact and Origin matches are what remains. It can go negative if the two cards
+// together exceed the total, which would mean the total is the smaller basis.
+function withManualPlaced(matchAgg, placedAgg) {
+  return {
+    ...matchAgg,
+    ...placedAgg,
+    inventoryPlacedManual: placedAgg.inventoryPlaced - matchAgg.demandPlacedExact - matchAgg.demandPlacedOrigin
   };
 }
 
@@ -1118,9 +1122,9 @@ function runSpec(spec, dataset = null) {
       // The placed card reads every matched_by, so it takes the unscoped rows.
       const all = full.inventory || [];
       return {
-        current: { ...invMatchAggregate(rows), ...inventoryPlacedAggregate(applyFilters(all, 'inventory', spec.filters)) },
+        current: withManualPlaced(invMatchAggregate(rows), inventoryPlacedAggregate(applyFilters(all, 'inventory', spec.filters))),
         previous: prevF
-          ? { ...invMatchAggregate(prev), ...inventoryPlacedAggregate(applyFilters(all, 'inventory', prevF)) }
+          ? withManualPlaced(invMatchAggregate(prev), inventoryPlacedAggregate(applyFilters(all, 'inventory', prevF)))
           : null
       };
     }
