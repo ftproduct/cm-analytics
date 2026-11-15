@@ -1096,6 +1096,8 @@
         '<span class="tile-note">Exact / Origin</span>'),
       tile('Inventory placed', `<span title="${escapeHtml(placedSplitTitle(c.inventoryPlacedByMatchedBy))}">${F.int(c.inventoryPlaced)}</span>`,
         `<span class="tile-note">${F.int(c.inventoryPlacedUnique)} unique IDs</span>` + deltaHtml(c.inventoryPlaced, p.inventoryPlaced)),
+      tile('Manual placed', `<span title="${escapeHtml(`Inventory placed ${F.int(c.inventoryPlaced)} − Exact ${F.int(c.inventoryPlacedExact)} − Origin ${F.int(c.inventoryPlacedOrigin)}`)}">${F.int(c.inventoryPlacedManual)}</span>`,
+        `<span class="tile-note">${F.int(c.inventoryPlaced)} − ${F.int(c.inventoryPlacedExact)} − ${F.int(c.inventoryPlacedOrigin)}</span>` + deltaHtml(c.inventoryPlacedManual, p.inventoryPlacedManual)),
       tile('Exact called', F.int(c.exactCalled),
         `Direct ${F.int(c.exactCalledDirect)} · Indirect ${F.int(c.exactCalledIndirect)}`),
       tile('Exact vehicle avail', F.int(c.exactVehicleAvailable), deltaHtml(c.exactVehicleAvailable, p.exactVehicleAvailable)),
